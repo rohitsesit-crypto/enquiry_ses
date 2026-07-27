@@ -237,12 +237,15 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
           </div>
         )}
         {/* Show Challan Number if available */}
-        {entry.Challan_Number && (
-          <div className="flex items-center gap-2.5 py-1">
-            <span className="text-[11px] font-semibold min-w-[100px]" style={{ color: "var(--text-muted)" }}>Challan No.</span>
-            <span className="text-xs font-bold" style={{ color: "var(--primary)" }}>{String(entry.Challan_Number)}</span>
-          </div>
-        )}
+        {(typeof group.entry.Challan_Number === "string" ||
+  typeof group.entry.Challan_Number === "number") && (
+  <span
+    className="text-[10px] font-bold"
+    style={{ color: "var(--primary)" }}
+  >
+    Challan: {String(group.entry.Challan_Number)}
+  </span>
+)}
       </div>
 
       {/* PO Entry History (from Step 4) */}
