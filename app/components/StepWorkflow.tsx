@@ -237,15 +237,12 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
           </div>
         )}
         {/* Show Challan Number if available */}
-        {(typeof group.entry.Challan_Number === "string" ||
-  typeof group.entry.Challan_Number === "number") && (
-  <span
-    className="text-[10px] font-bold"
-    style={{ color: "var(--primary)" }}
-  >
-    Challan: {String(group.entry.Challan_Number)}
-  </span>
-)}
+        {!!entry.Challan_Number && (
+          <div className="flex items-center gap-2.5 py-1">
+            <span className="text-[11px] font-semibold min-w-[100px]" style={{ color: "var(--text-muted)" }}>Challan No.</span>
+            <span className="text-xs font-bold" style={{ color: "var(--primary)" }}>{String(entry.Challan_Number)}</span>
+          </div>
+        )}
       </div>
 
       {/* PO Entry History (from Step 4) */}
@@ -733,7 +730,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
           })()}
 
           {/* Show Challan Number */}
-          {entry.Challan_Number && (
+          {!!entry.Challan_Number && (
             <div className="p-3 rounded-lg flex items-center gap-3" style={{ background: "rgba(5,150,105,0.06)", border: "1px solid rgba(5,150,105,0.15)" }}>
               <span className="text-[11px] font-semibold" style={{ color: "var(--text-muted)" }}>Challan No:</span>
               <span className="text-sm font-bold" style={{ color: "var(--success)" }}>{String(entry.Challan_Number)}</span>
