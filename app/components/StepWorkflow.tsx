@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { STEP_NAMES } from "../lib/types";
 import { formatDate } from "../lib/utils";
 import { uploadToCloudinary } from "../lib/cloudinary";
@@ -237,17 +237,16 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
           </div>
         )}
         {/* Show Challan Number if available */}
-{(typeof entry.Challan_Number === "string" || typeof entry.Challan_Number === "number") && entry.Challan_Number && (
-  <div className="flex items-center gap-2.5 py-1">
-    <span className="text-[11px] font-semibold min-w-[100px]" style={{ color: "var(--text-muted)" }}>Challan No.</span>
-    <span className="text-xs font-bold" style={{ color: "var(--primary)" }}>{String(entry.Challan_Number)}</span>
-  </div>
-)}
-
+        {entry.Challan_Number && (
+          <div className="flex items-center gap-2.5 py-1">
+            <span className="text-[11px] font-semibold min-w-[100px]" style={{ color: "var(--text-muted)" }}>Challan No.</span>
+            <span className="text-xs font-bold" style={{ color: "var(--primary)" }}>{String(entry.Challan_Number)}</span>
+          </div>
+        )}
       </div>
 
       {/* PO Entry History (from Step 4) */}
-      {(() => {
+      {((): React.ReactNode => {
         let poData: { poNumber?: string; poLocation?: string; qNo?: string; deliveryDate?: string; payTerms?: number } | null = null;
         try {
           const poStr = entry.Step_4_PO_JSON as string;
@@ -296,7 +295,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
       })()}
 
       {/* Dispatch History (from Step 8) */}
-      {(() => {
+      {((): React.ReactNode => {
         let dispatchHistoryData: { dispatchMode?: string; dispatchName?: string; dispatchMobNo?: string; invoiceChallanNo?: string; lrNo?: string; gatePassNo?: string } | null = null;
         try {
           const dispStr = entry.Step_8_Dispatch_JSON as string;
@@ -531,7 +530,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
           <h4 className="text-xs font-bold" style={{ color: "var(--text)" }}>Invoice &amp; Quantity Verification</h4>
 
           {/* Show previous partial submission history */}
-          {(() => {
+          {((): React.ReactNode => {
             let existingInvoices: { batch: number; date: string; submittedBy: string; items: { itemName: string; quantityReceived: number; attachment: string }[] }[] = [];
             try {
               const invoicesStr = entry.Step_7_Invoices_JSON as string;
@@ -665,7 +664,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
       {stepNum === 8 && (
         <div className="space-y-4">
           {/* Show attachments from Step 7 with details */}
-          {(() => {
+          {((): React.ReactNode => {
             let existingInvoices: { batch: number; date: string; submittedBy: string; items: { itemName: string; quantityReceived: number; totalQuantity: number; attachment: string }[] }[] = [];
             try {
               const invoicesStr = entry.Step_7_Invoices_JSON as string;
