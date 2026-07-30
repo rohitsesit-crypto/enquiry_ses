@@ -21,17 +21,6 @@ function parseDate(dateStr: string): Date {
   // Fallback to standard Date parsing
   return new Date(dateStr);
 }
-/** Date only, no time: 31-07-2026 */
-export function formatDateOnly(date: Date | string | null): string {
-  if (!date) return '';
-  const d = typeof date === 'string' ? parseDate(date) : date;
-  if (isNaN(d.getTime())) return '';
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = String(d.getFullYear());
-  return day + '-' + month + '-' + year;
-}
-
 
 export function formatDate(date: Date | string | null): string {
   if (!date) return '';
@@ -48,6 +37,16 @@ export function formatDate(date: Date | string | null): string {
   if (h === 0) h = 12;
   const hStr = String(h).padStart(2, '0');
   return `${day}-${month}-${year} ${hStr}:${m}:${s} ${ampm}`;
+}
+/** Date only, no time: 31-07-2026 */
+export function formatDateOnly(date: Date | string | null): string {
+  if (!date) return '';
+  const d = typeof date === 'string' ? parseDate(date) : date;
+  if (isNaN(d.getTime())) return '';
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${day}-${month}-${year}`;
 }
 
 export function formatTimestamp(ts: string | null): string {
