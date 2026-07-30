@@ -849,7 +849,18 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
                         {item.attachment && (
                           <button
                             type="button"
-                            onClick={() => { setSheetAttachmentUrl(item.attachment); setShowAttachmentSheet(true); }}
+onClick={() => {
+  // Extract clean Cloudinary URL from the stored string
+  // Format is: "Invoice XXX: https://res.cloudinary.com/...ext [timestamp]"
+  let cleanUrl = item.attachment;
+  const urlMatch = item.attachment.match(/https?:\/\/res\.cloudinary\.com[^\s\[\]]+/);
+  if (urlMatch) {
+    cleanUrl = urlMatch[0];
+  }
+  setSheetAttachmentUrl(cleanUrl);
+  setShowAttachmentSheet(true);
+}}
+
                             className="text-[9px] px-2 py-1 rounded cursor-pointer font-semibold"
                             style={{ color: "var(--primary)", background: "var(--primary-bg)", border: "1px solid var(--primary)" }}
                           >
