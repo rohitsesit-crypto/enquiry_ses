@@ -315,7 +315,10 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
             };
           }
         }
-        
+        if (!poData) return null;
+        return (
+         
+        );
       })()}
 
       {/* Dispatch History (from Step 8) */}
