@@ -352,47 +352,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
         if (!dispatchHistoryData) return null;
         return (
           <div className="mb-4 p-3 rounded-lg" style={{ background: "rgba(5,150,105,0.04)", border: "1px solid rgba(5,150,105,0.12)" }}>
-            <h4 className="text-[11px] font-bold mb-2 flex items-center gap-1.5" style={{ color: "var(--success)" }}>
-              🚚 Dispatch Details
-            </h4>
-            <div className="grid grid-cols-2 gap-2">
-              {dispatchHistoryData.dispatchMode && (
-                <div className="py-1">
-                  <span className="text-[9px] font-semibold block" style={{ color: "var(--text-faint)" }}>Mode</span>
-                  <span className="text-[11px] font-medium" style={{ color: "var(--text)" }}>{dispatchHistoryData.dispatchMode}</span>
-                </div>
-              )}
-              {dispatchHistoryData.dispatchName && (
-                <div className="py-1">
-                  <span className="text-[9px] font-semibold block" style={{ color: "var(--text-faint)" }}>Name</span>
-                  <span className="text-[11px] font-medium" style={{ color: "var(--text)" }}>{dispatchHistoryData.dispatchName}</span>
-                </div>
-              )}
-              {dispatchHistoryData.dispatchMobNo && (
-                <div className="py-1">
-                  <span className="text-[9px] font-semibold block" style={{ color: "var(--text-faint)" }}>Mobile</span>
-                  <span className="text-[11px] font-medium" style={{ color: "var(--text)" }}>{dispatchHistoryData.dispatchMobNo}</span>
-                </div>
-              )}
-              {dispatchHistoryData.invoiceChallanNo && (
-                <div className="py-1">
-                  <span className="text-[9px] font-semibold block" style={{ color: "var(--text-faint)" }}>Invoice/Challan</span>
-                  <span className="text-[11px] font-medium" style={{ color: "var(--text)" }}>{dispatchHistoryData.invoiceChallanNo}</span>
-                </div>
-              )}
-              {dispatchHistoryData.gatePassNo && (
-                <div className="py-1">
-                  <span className="text-[9px] font-semibold block" style={{ color: "var(--text-faint)" }}>Gate Pass</span>
-                  <span className="text-[11px] font-medium" style={{ color: "var(--text)" }}>{dispatchHistoryData.gatePassNo}</span>
-                </div>
-              )}
-              {dispatchHistoryData.lrNo && (
-                <div className="py-1">
-                  <span className="text-[9px] font-semibold block" style={{ color: "var(--text-faint)" }}>LR No</span>
-                  <span className="text-[11px] font-medium" style={{ color: "var(--text)" }}>{dispatchHistoryData.lrNo}</span>
-                </div>
-              )}
-            </div>
+            
           </div>
         );
       })()}
