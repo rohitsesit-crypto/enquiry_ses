@@ -104,21 +104,23 @@ export function generateGatePassNo(location: 'Mumbai' | 'Boisar', currentCount: 
 }
 
 export function isOverdue(plannedDate: string | null): boolean {
-  if (!plannedDate) return false;
-  const planned = parseDate(plannedDate);
-  if (isNaN(planned.getTime())) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  planned.setHours(0, 0, 0, 0);
+  const planned = formatDateOnly(plannedDate);
+  if (!planned) return false;
+
+  const today = formatDateOnly(new Date());
+  if (!today) return false;
+
   return planned < today;
 }
 
 export function isToday(dateStr: string | null): boolean {
-  if (!dateStr) return false;
-  const date = parseDate(dateStr);
-  if (isNaN(date.getTime())) return false;
-  const today = new Date();
-  return date.toDateString() === today.toDateString();
+  const date = formatDateOnly(dateStr);
+  if (!date) return false;
+
+  const today = formatDateOnly(new Date());
+  if (!today) return false;
+
+  return date.getTime() === today.getTime();
 }
 
 export function cn(...classes: (string | boolean | undefined | null)[]): string {
