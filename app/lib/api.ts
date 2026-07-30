@@ -41,6 +41,12 @@ async function callApi<T>(action: string, options: ApiOptions = {}): Promise<T> 
 
 
 // ===== User APIs =====
+// Add this function to api.ts
+export async function getItemNames() {
+  return callApi<{ success: boolean; items: string[]; message?: string }>('getItemNames', {
+    body: {},
+  });
+}
 
 export async function verifyUser(email: string) {
   return callApi<{ success: boolean; verified: boolean; name: string; message?: string }>('verifyUser', {
