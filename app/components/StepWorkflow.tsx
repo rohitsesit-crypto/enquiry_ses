@@ -5,6 +5,24 @@ import { STEP_NAMES } from "../lib/types";
 import { formatDate } from "../lib/utils";
 import { uploadToCloudinary } from "../lib/cloudinary";
 
+/**
+ * Formats a Date object to Asian format: DD-MM-YYYY HH:MM:SS AM/PM
+ * Used for timestamping each attachment upload
+ */
+function formatAsianTimestamp(date: Date): string {
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  let h = date.getHours();
+  const m = String(date.getMinutes()).padStart(2, '0');
+  const s = String(date.getSeconds()).padStart(2, '0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12;
+  if (h === 0) h = 12;
+  const hStr = String(h).padStart(2, '0');
+  return `${day}-${month}-${year} ${hStr}:${m}:${s} ${ampm}`;
+}
+
 interface StepWorkflowProps {
   entry: Record<string, unknown>;
   stepNum: number;
@@ -178,19 +196,23 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
             }
           }
           // Include ALL items in the data - even those with 0 quantity if they have attachment
+          // Add uploadedAt timestamp for each attachment
+          const now = new Date();
+          const uploadedAt = attachmentUrl ? formatAsianTimestamp(now) : "";
           invoicesData.push({
             itemName: ie.itemName,
             quantityReceived: qtyReceived,
             totalQuantity: requirements[idx]?.quantity || 0,
             attachment: attachmentUrl,
+            uploadedAt: uploadedAt,
           });
         }
         setUploadingFile(false);
         data.invoices = invoicesData;
-        // Also store a flat attachment list for easy Google Sheet column mapping
+        // Also store a flat attachment list for easy Google Sheet column mapping (with timestamps)
         const allAttachmentUrls = invoicesData
           .filter((inv) => inv.attachment)
-          .map((inv) => `${inv.itemName}: ${inv.attachment}`);
+          .map((inv) => `${inv.itemName}: ${inv.attachment}${inv.uploadedAt ? " [" + inv.uploadedAt + "]" : ""}`);
         if (allAttachmentUrls.length > 0) {
           data.attachment = allAttachmentUrls.join(" | ");
         }
@@ -268,6 +290,23 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
           const poStr = entry.Step_4_PO_JSON as string;
           if (poStr) poData = JSON.parse(poStr);
         } catch { /* ignore */ }
+        // Fallback: construct from individual columns
+        if (!poData) {
+          const poNumber = entry.Step_4_PO_Number as string;
+          const poLocation = entry.Step_4_PO_Location as string;
+          const qNo = entry.Step_4_PO_QNo as string;
+          const deliveryDate = entry.Step_4_PO_Delivery_Date as string;
+          const payTerms = entry.Step_4_PO_PayTerms;
+          if (poNumber || poLocation || qNo || deliveryDate || payTerms) {
+            poData = {
+              poNumber: poNumber || undefined,
+              poLocation: poLocation || undefined,
+              qNo: qNo || undefined,
+              deliveryDate: deliveryDate || undefined,
+              payTerms: payTerms ? Number(payTerms) : undefined,
+            };
+          }
+        }
         if (!poData) return null;
         return (
           <div className="mb-4 p-3 rounded-lg" style={{ background: "rgba(37,99,235,0.04)", border: "1px solid rgba(37,99,235,0.12)" }}>
@@ -317,6 +356,25 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
           const dispStr = entry.Step_8_Dispatch_JSON as string;
           if (dispStr) dispatchHistoryData = JSON.parse(dispStr);
         } catch { /* ignore */ }
+        // Fallback: construct from individual columns
+        if (!dispatchHistoryData) {
+          const dispatchMode = entry.Step_8_Dispatch_Mode as string;
+          const dispatchName = entry.Step_8_Dispatch_Name as string;
+          const dispatchMobNo = entry.Step_8_Dispatch_MobNo as string;
+          const invoiceChallanNo = entry.Step_8_Dispatch_InvoiceChallanNo as string;
+          const gatePassNo = entry.Step_8_Dispatch_GatePassNo as string;
+          const lrNo = entry.Step_8_Dispatch_LRNo as string;
+          if (dispatchMode || dispatchName || dispatchMobNo || invoiceChallanNo || gatePassNo || lrNo) {
+            dispatchHistoryData = {
+              dispatchMode: dispatchMode || undefined,
+              dispatchName: dispatchName || undefined,
+              dispatchMobNo: dispatchMobNo || undefined,
+              invoiceChallanNo: invoiceChallanNo || undefined,
+              gatePassNo: gatePassNo || undefined,
+              lrNo: lrNo || undefined,
+            };
+          }
+        }
         if (!dispatchHistoryData) return null;
         return (
           <div className="mb-4 p-3 rounded-lg" style={{ background: "rgba(5,150,105,0.04)", border: "1px solid rgba(5,150,105,0.12)" }}>
@@ -547,7 +605,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
 
           {/* Show previous partial submission history */}
           {((): React.ReactNode => {
-            let existingInvoices: { batch: number; date: string; submittedBy: string; items: { itemName: string; quantityReceived: number; attachment: string }[] }[] = [];
+            let existingInvoices: { batch: number; date: string; submittedBy: string; items: { itemName: string; quantityReceived: number; attachment: string; uploadedAt?: string }[] }[] = [];
             try {
               const invoicesStr = entry.Step_7_Invoices_JSON as string;
               if (invoicesStr) existingInvoices = JSON.parse(invoicesStr);
@@ -569,11 +627,11 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
                 {existingInvoices.map((batch, bIdx) => (
                   <div key={bIdx} className="mb-2 p-2 rounded" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
                     <div className="text-[10px] font-semibold mb-1" style={{ color: "var(--text-muted)" }}>
-                      {"Batch " + batch.batch + " - " + new Date(batch.date).toLocaleDateString()}
+                      {"Batch " + batch.batch + " - "}<span style={{ color: "var(--text-secondary)" }}>{formatDate(batch.date)}</span>
                       {batch.submittedBy && <span className="ml-2" style={{ color: "var(--text-faint)" }}>by {batch.submittedBy}</span>}
                     </div>
                     {(batch.items || []).map((item, iIdx) => (
-                      <div key={iIdx} className="text-[10px] flex items-center gap-2 py-0.5" style={{ color: "var(--text)" }}>
+                      <div key={iIdx} className="text-[10px] flex items-center flex-wrap gap-2 py-0.5" style={{ color: "var(--text)" }}>
                         <span>{item.itemName + ": " + item.quantityReceived + " received"}</span>
                         {item.attachment && (
                           <button
@@ -584,6 +642,11 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
                           >
                             📎 View Attachment
                           </button>
+                        )}
+                        {item.uploadedAt && (
+                          <span className="text-[9px]" style={{ color: "var(--text-faint)" }}>
+                            ⏱️ {formatDate(item.uploadedAt)}
+                          </span>
                         )}
                       </div>
                     ))}
