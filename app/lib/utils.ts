@@ -28,8 +28,10 @@ export function formatDateOnly(date: Date | string | null): string {
   if (isNaN(d.getTime())) return '';
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');
-  return `<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mrow><mi>d</mi><mi>a</mi><mi>y</mi></mrow><mo>−</mo></mrow><annotation encoding="application/x-tex">{day}-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal">d</span><span class="mord mathnormal">a</span><span class="mord mathnormal" style="margin-right:0.0359em;">y</span></span><span class="mord">−</span></span></span></span>{month}-${d.getFullYear()}`;
+  const year = String(d.getFullYear());
+  return day + '-' + month + '-' + year;
 }
+
 
 export function formatDate(date: Date | string | null): string {
   if (!date) return '';
