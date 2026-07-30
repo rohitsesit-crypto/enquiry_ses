@@ -715,19 +715,55 @@ function TaskDetailModal({
     if (reqStr) requirements = JSON.parse(reqStr);
   } catch { /* ignore */ }
 
-  // Parse PO form data
+  // Parse PO form data - try JSON first, then fallback to individual columns
   let poData: { poNumber?: string; poLocation?: string; qNo?: string; deliveryDate?: string; payTerms?: number } | null = null;
   try {
     const poStr = entry.Step_4_PO_JSON as string;
     if (poStr) poData = JSON.parse(poStr);
   } catch { /* ignore */ }
+  // Fallback: construct from individual columns if JSON not available
+  if (!poData) {
+    const poNumber = entry.Step_4_PO_Number as string;
+    const poLocation = entry.Step_4_PO_Location as string;
+    const qNo = entry.Step_4_PO_QNo as string;
+    const deliveryDate = entry.Step_4_PO_Delivery_Date as string;
+    const payTerms = entry.Step_4_PO_PayTerms;
+    if (poNumber || poLocation || qNo || deliveryDate || payTerms) {
+      poData = {
+        poNumber: poNumber || undefined,
+        poLocation: poLocation || undefined,
+        qNo: qNo || undefined,
+        deliveryDate: deliveryDate || undefined,
+        payTerms: payTerms ? Number(payTerms) : undefined,
+      };
+    }
+  }
 
-  // Parse Dispatch form data
+  // Parse Dispatch form data - try JSON first, then fallback to individual columns
   let dispatchData: { dispatchMode?: string; dispatchName?: string; dispatchMobNo?: string; invoiceChallanNo?: string; lrNo?: string; gatePassNo?: string } | null = null;
   try {
     const dispStr = entry.Step_8_Dispatch_JSON as string;
     if (dispStr) dispatchData = JSON.parse(dispStr);
   } catch { /* ignore */ }
+  // Fallback: construct from individual columns if JSON not available
+  if (!dispatchData) {
+    const dispatchMode = entry.Step_8_Dispatch_Mode as string;
+    const dispatchName = entry.Step_8_Dispatch_Name as string;
+    const dispatchMobNo = entry.Step_8_Dispatch_MobNo as string;
+    const invoiceChallanNo = entry.Step_8_Dispatch_InvoiceChallanNo as string;
+    const gatePassNo = entry.Step_8_Dispatch_GatePassNo as string;
+    const lrNo = entry.Step_8_Dispatch_LRNo as string;
+    if (dispatchMode || dispatchName || dispatchMobNo || invoiceChallanNo || gatePassNo || lrNo) {
+      dispatchData = {
+        dispatchMode: dispatchMode || undefined,
+        dispatchName: dispatchName || undefined,
+        dispatchMobNo: dispatchMobNo || undefined,
+        invoiceChallanNo: invoiceChallanNo || undefined,
+        gatePassNo: gatePassNo || undefined,
+        lrNo: lrNo || undefined,
+      };
+    }
+  }
 
   // Determine which steps to show:
   // - If canViewAllSteps is true: show ALL steps (user can view all + edit their assigned ones)
@@ -908,9 +944,9 @@ function TaskDetailModal({
                         </div>
                       )}
 
-                      {/* Step 7: Show Invoice & Attachments */}
+                      {/* Step 7: Show Invoice & Attachments with timestamps */}
                       {s === 7 && (() => {
-                        let invoices: { batch: number; date: string; submittedBy: string; items: { itemName: string; quantityReceived: number; totalQuantity: number; attachment: string }[] }[] = [];
+                        let invoices: { batch: number; date: string; submittedBy: string; items: { itemName: string; quantityReceived: number; totalQuantity: number; attachment: string; uploadedAt?: string }[] }[] = [];
                         try {
                           const invStr = entry.Step_7_Invoices_JSON as string;
                           if (invStr) invoices = JSON.parse(invStr);
@@ -922,11 +958,11 @@ function TaskDetailModal({
                             {invoices.map((batch, bIdx) => (
                               <div key={bIdx} className="mb-1.5 p-1.5 rounded" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
                                 <div className="text-[9px] font-semibold mb-1" style={{ color: "var(--text-faint)" }}>
-                                  Batch {batch.batch} - {new Date(batch.date).toLocaleDateString()}
+                                  Batch {batch.batch} - <span style={{ color: "var(--text-secondary)" }}>{formatDate(batch.date)}</span>
                                   {batch.submittedBy && <span className="ml-1">by {batch.submittedBy}</span>}
                                 </div>
                                 {(batch.items || []).map((item, iIdx) => (
-                                  <div key={iIdx} className="flex items-center gap-2 py-0.5">
+                                  <div key={iIdx} className="flex items-center flex-wrap gap-2 py-0.5">
                                     <span className="text-[10px]" style={{ color: "var(--text)" }}>
                                       {item.itemName}: {item.quantityReceived}/{item.totalQuantity || "?"} received
                                     </span>
@@ -939,6 +975,11 @@ function TaskDetailModal({
                                       >
                                         📎 View
                                       </button>
+                                    )}
+                                    {item.uploadedAt && (
+                                      <span className="text-[9px]" style={{ color: "var(--text-faint)" }}>
+                                        ⏱️ {formatDate(item.uploadedAt)}
+                                      </span>
                                     )}
                                   </div>
                                 ))}
