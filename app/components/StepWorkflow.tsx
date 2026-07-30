@@ -358,91 +358,235 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
       })()}
 
       {/* Step-specific content */}
-      {(stepNum === 1 || stepNum === 2) && (
-        <div className="space-y-4">
-          {stepNum === 2 && (
-            <div>
-              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>Upload Attachment</label>
-              <div
-                className="border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-all hover:shadow-md"
-                style={{ borderColor: attachment ? "var(--success)" : "var(--border)", background: attachment ? "rgba(5,150,105,0.04)" : "var(--surface-2)" }}
-                onClick={() => document.getElementById(`file-step-${stepNum}`)?.click()}
-              >
-                <input type="file" id={`file-step-${stepNum}`} className="hidden" onChange={handleFileChange} />
-                <div className="flex flex-col items-center gap-2">
-                  <div style={{ color: attachment ? "var(--success)" : "var(--text-muted)" }}>
-                    <UploadIcon />
-                  </div>
-                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>{attachment ? "📎 " + attachment.name : "Click or tap to upload file"}</p>
-                </div>
-              </div>
-            </div>
-          )}
-          <div>
-            <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>Status <span style={{ color: "var(--danger)" }}>*</span></label>
-            <div className="flex gap-2">
-              {["Quoted", "Not Quoted", "Not Confirmed"].map((opt) => (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => setStatus(opt)}
-                  className="flex-1 py-2.5 rounded-md text-xs font-semibold transition-all cursor-pointer"
-                  style={{
-                    background: status === opt ? (opt === "Quoted" ? "var(--success)" : opt === "Not Quoted" ? "var(--danger)" : "var(--warning)") : "var(--surface-2)",
-                    color: status === opt ? "white" : "var(--text)",
-                    border: "1px solid " + (status === opt ? "transparent" : "var(--border)"),
-                    opacity: status && status !== opt ? 0.5 : 1,
-                  }}
-                >
-                  {opt}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+     {stepNum === 1 && (
+  <div>
+    <label
+      className="block text-[11px] font-semibold mb-1.5"
+      style={{ color: "var(--text-secondary)" }}
+    >
+      Status <span style={{ color: "var(--danger)" }}>*</span>
+    </label>
 
-      {stepNum === 3 && (
-        <div className="space-y-4">
-          <div>
-            <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>Upload Attachment</label>
-            <div
-              className="border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-all hover:shadow-md"
-              style={{ borderColor: attachment ? "var(--success)" : "var(--border)", background: attachment ? "rgba(5,150,105,0.04)" : "var(--surface-2)" }}
-              onClick={() => document.getElementById("file-step-3")?.click()}
-            >
-              <input type="file" id="file-step-3" className="hidden" onChange={handleFileChange} />
-              <div className="flex flex-col items-center gap-2">
-                <div style={{ color: attachment ? "var(--success)" : "var(--text-muted)" }}>
-                  <UploadIcon />
-                </div>
-                <p className="text-xs" style={{ color: "var(--text-muted)" }}>{attachment ? "📎 " + attachment.name : "Click or tap to upload file"}</p>
-              </div>
-            </div>
+    <div className="flex gap-2">
+      {["Quoted", "Not Quoted", "Not Confirmed"].map((opt) => (
+        <button
+          key={opt}
+          type="button"
+          onClick={() => setStatus(opt)}
+          className="flex-1 py-2.5 rounded-md text-xs font-semibold transition-all cursor-pointer"
+          style={{
+            background:
+              status === opt
+                ? opt === "Quoted"
+                  ? "var(--success)"
+                  : opt === "Not Quoted"
+                  ? "var(--danger)"
+                  : "var(--warning)"
+                : "var(--surface-2)",
+            color: status === opt ? "white" : "var(--text)",
+            border:
+              "1px solid " +
+              (status === opt ? "transparent" : "var(--border)"),
+            opacity: status && status !== opt ? 0.5 : 1,
+          }}
+        >
+          {opt}
+        </button>
+      ))}
+    </div>
+  </div>
+)}
+
+{stepNum === 2 && (
+  <div className="space-y-4">
+    <div>
+      <label
+        className="block text-[11px] font-semibold mb-1.5"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        Upload Attachment <span style={{ color: "var(--danger)" }}>*</span>
+      </label>
+
+      <div
+        className="border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-all hover:shadow-md"
+        style={{
+          borderColor: attachment ? "var(--success)" : "var(--danger)",
+          background: attachment
+            ? "rgba(5,150,105,0.04)"
+            : "var(--surface-2)",
+        }}
+        onClick={() =>
+          document.getElementById(`file-step-${stepNum}`)?.click()
+        }
+      >
+        <input
+          type="file"
+          id={`file-step-${stepNum}`}
+          className="hidden"
+          onChange={handleFileChange}
+          required
+        />
+
+        <div className="flex flex-col items-center gap-2">
+          <div
+            style={{
+              color: attachment ? "var(--success)" : "var(--text-muted)",
+            }}
+          >
+            <UploadIcon />
           </div>
-          <div>
-            <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>Status <span style={{ color: "var(--danger)" }}>*</span></label>
-            <div className="flex gap-2">
-              {["Yes", "No"].map((opt) => (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => setStatus(opt)}
-                  className="flex-1 py-3 rounded-md text-sm font-semibold transition-all cursor-pointer"
-                  style={{
-                    background: status === opt ? (opt === "Yes" ? "var(--success)" : "var(--danger)") : "var(--surface-2)",
-                    color: status === opt ? "white" : "var(--text)",
-                    border: "1px solid " + (status === opt ? "transparent" : "var(--border)"),
-                    opacity: status && status !== opt ? 0.5 : 1,
-                  }}
-                >
-                  {opt === "Yes" ? "✅ Yes" : "❌ No"}
-                </button>
-              ))}
-            </div>
-          </div>
+
+          <p
+            className="text-xs"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {attachment
+              ? "📎 " + attachment.name
+              : "Click or tap to upload file *"}
+          </p>
         </div>
+      </div>
+
+      {!attachment && (
+        <p className="text-[11px] mt-1 text-red-500">
+          Attachment is required.
+        </p>
       )}
+    </div>
+
+    <div>
+      <label
+        className="block text-[11px] font-semibold mb-1.5"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        Status <span style={{ color: "var(--danger)" }}>*</span>
+      </label>
+
+      <div className="flex gap-2">
+        {["Quoted", "Not Quoted", "Not Confirmed"].map((opt) => (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => setStatus(opt)}
+            className="flex-1 py-2.5 rounded-md text-xs font-semibold transition-all cursor-pointer"
+            style={{
+              background:
+                status === opt
+                  ? opt === "Quoted"
+                    ? "var(--success)"
+                    : opt === "Not Quoted"
+                    ? "var(--danger)"
+                    : "var(--warning)"
+                  : "var(--surface-2)",
+              color: status === opt ? "white" : "var(--text)",
+              border:
+                "1px solid " +
+                (status === opt ? "transparent" : "var(--border)"),
+              opacity: status && status !== opt ? 0.5 : 1,
+            }}
+          >
+            {opt}
+          </button>
+        ))}
+      </div>
+    </div>
+  </div>
+)}
+
+     {stepNum === 3 && (
+  <div className="space-y-4">
+    {/* Attachment */}
+    <div>
+      <label
+        className="block text-[11px] font-semibold mb-1.5"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        Upload Attachment <span style={{ color: "var(--danger)" }}>*</span>
+      </label>
+
+      <div
+        className="border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-all hover:shadow-md"
+        style={{
+          borderColor: attachment ? "var(--success)" : "var(--danger)",
+          background: attachment
+            ? "rgba(5,150,105,0.04)"
+            : "var(--surface-2)",
+        }}
+        onClick={() => document.getElementById("file-step-3")?.click()}
+      >
+        <input
+          type="file"
+          id="file-step-3"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+
+        <div className="flex flex-col items-center gap-2">
+          <div
+            style={{
+              color: attachment
+                ? "var(--success)"
+                : "var(--text-muted)",
+            }}
+          >
+            <UploadIcon />
+          </div>
+
+          <p
+            className="text-xs"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {attachment
+              ? `📎 ${attachment.name}`
+              : "Click or tap to upload file *"}
+          </p>
+        </div>
+      </div>
+
+      {!attachment && (
+        <p className="mt-1 text-[11px]" style={{ color: "var(--danger)" }}>
+          Attachment is required.
+        </p>
+      )}
+    </div>
+
+    {/* Status */}
+    <div>
+      <label
+        className="block text-[11px] font-semibold mb-1.5"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        Status <span style={{ color: "var(--danger)" }}>*</span>
+      </label>
+
+      <div className="flex gap-2">
+        {["Yes", "No"].map((opt) => (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => setStatus(opt)}
+            className="flex-1 py-3 rounded-md text-sm font-semibold transition-all cursor-pointer"
+            style={{
+              background:
+                status === opt
+                  ? opt === "Yes"
+                    ? "var(--success)"
+                    : "var(--danger)"
+                  : "var(--surface-2)",
+              color: status === opt ? "white" : "var(--text)",
+              border:
+                "1px solid " +
+                (status === opt ? "transparent" : "var(--border)"),
+              opacity: status && status !== opt ? 0.5 : 1,
+            }}
+          >
+            {opt === "Yes" ? "✅ Yes" : "❌ No"}
+          </button>
+        ))}
+      </div>
+    </div>
+  </div>
+)}
 
       {stepNum === 4 && (
         <div className="space-y-4">
