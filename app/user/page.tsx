@@ -909,7 +909,16 @@ function TaskDetailModal({
                       {stepAttachment && (
                         <button
                           type="button"
-                          onClick={() => onViewAttachment(stepAttachment)}
+                          onClick={() => {
+  let cleanUrl = stepAttachment;
+  // Handle Step 7 combined format: "Invoice XXX: URL [timestamp]"
+  const urlMatch = stepAttachment.match(/https?:\/\/res\.cloudinary\.com[^\s\[\]]+/);
+  if (urlMatch) {
+    cleanUrl = urlMatch[0];
+  }
+  onViewAttachment(cleanUrl);
+}}
+
                           className="mt-1 text-[10px] px-2 py-1 rounded cursor-pointer font-semibold inline-flex items-center gap-1"
                           style={{ color: "var(--primary)", background: "var(--primary-bg)", border: "1px solid var(--primary)" }}
                         >
@@ -956,7 +965,15 @@ function TaskDetailModal({
                                     {item.attachment && (
                                       <button
                                         type="button"
-                                        onClick={() => onViewAttachment(item.attachment)}
+                                        onClick={() => {
+  let cleanUrl = item.attachment;
+  const urlMatch = item.attachment.match(/https?:\/\/res\.cloudinary\.com[^\s\[\]]+/);
+  if (urlMatch) {
+    cleanUrl = urlMatch[0];
+  }
+  onViewAttachment(cleanUrl);
+}}
+
                                         className="text-[9px] px-1.5 py-0.5 rounded cursor-pointer font-semibold"
                                         style={{ color: "var(--primary)", background: "var(--primary-bg)", border: "1px solid var(--primary)" }}
                                       >
