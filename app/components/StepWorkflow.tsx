@@ -48,8 +48,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
 
   // Step 7 Invoice tracking
   const [invoiceEntries, setInvoiceEntries] = useState<{ itemName: string; quantityReceived: string }[]>([]);
-  // Step 7 single invoice attachment
-  const [invoiceAttachment, setInvoiceAttachment] = useState<File | null>(null);
+  const [invoiceNumber, setInvoiceNumber] = useState("");
 
   // Step 8 Dispatch
   const [dispatchMode, setDispatchMode] = useState("");
@@ -104,8 +103,8 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
 
     const data: Record<string, unknown> = { remark };
 
-    // Handle attachment upload to Cloudinary - ONLY for steps 2, 3, and 8
-    if (attachment && [2, 3, 8].includes(stepNum)) {
+    // Handle attachment upload to Cloudinary
+    if (attachment) {
       setUploadingFile(true);
       const entryId = String(entry.Entry_ID || "unknown");
       const result = await uploadToCloudinary(attachment, `fms/${entryId}/step-${stepNum}`);
@@ -176,18 +175,23 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
           return;
         }
 
-        // Upload single invoice attachment to Cloudinary
+        if (!invoiceNumber.trim()) {
+          alert("Please enter the Invoice Number.");
+          setSubmitting(false);
+          return;
+        }
+
+        // Upload single invoice attachment to Cloudinary (if provided)
         let invoiceAttachmentUrl = "";
-        if (invoiceAttachment) {
+        if (attachment) {
           setUploadingFile(true);
           const entryId = String(entry.Entry_ID || "unknown");
-          const uploadResult = await uploadToCloudinary(invoiceAttachment, `fms/${entryId}/step-7/invoices`);
+          const uploadResult = await uploadToCloudinary(attachment, `fms/${entryId}/step-7/invoices`);
           setUploadingFile(false);
-
           if (uploadResult.success && uploadResult.url) {
             invoiceAttachmentUrl = uploadResult.url;
           } else {
-            alert("Invoice attachment upload failed: " + (uploadResult.error || "Unknown error"));
+            alert(`Failed to upload invoice: ${uploadResult.error || "Unknown error"}`);
             setSubmitting(false);
             return;
           }
@@ -195,22 +199,30 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
 
         const now = new Date();
         const uploadedAt = invoiceAttachmentUrl ? formatAsianTimestamp(now) : "";
-
-        const invoicesData = invoiceEntries.map((ie, idx) => {
-          const qtyReceived = parseInt(ie.quantityReceived || "0");
-          return {
-            itemName: ie.itemName,
-            quantityReceived: qtyReceived,
-            totalQuantity: requirements[idx]?.quantity || 0,
-            attachment: invoiceAttachmentUrl,
-            uploadedAt: uploadedAt,
-          };
-        });
+        const invoicesData = invoiceEntries.map((ie, idx) => ({
+          itemName: ie.itemName,
+          quantityReceived: parseInt(ie.quantityReceived || "0"),
+          totalQuantity: requirements[idx]?.quantity || 0,
+          attachment: "",
+          uploadedAt: "",
+        }));
 
         data.invoices = invoicesData;
-        // Store attachment URL for Google Sheet column
+        data.invoiceNo = invoiceNumber.trim();
+
+        // Store single attachment for the whole batch
         if (invoiceAttachmentUrl) {
-          data.attachment = `Invoice: ${invoiceAttachmentUrl}${uploadedAt ? " [" + uploadedAt + "]" : ""}`;
+          data.attachment = `Invoice ${invoiceNumber.trim()}: ${invoiceAttachmentUrl}${uploadedAt ? " [" + uploadedAt + "]" : ""}`;
+        }
+
+        // Build step7AttachmentEntries for the separate sheet
+        if (invoiceAttachmentUrl) {
+          data.step7AttachmentEntries = [{
+            entryId: String(entry.Entry_ID || "unknown"),
+            invoiceNo: invoiceNumber.trim(),
+            timestamp: formatAsianTimestamp(now),
+            attachmentUrl: invoiceAttachmentUrl,
+          }];
         }
         break;
       }
@@ -601,7 +613,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
 
           {/* Show previous partial submission history */}
           {((): React.ReactNode => {
-            let existingInvoices: { batch: number; date: string; submittedBy: string; items: { itemName: string; quantityReceived: number; attachment: string; uploadedAt?: string }[] }[] = [];
+            let existingInvoices: { batch: number; date: string; submittedBy: string; invoiceNo?: string; items: { itemName: string; quantityReceived: number; attachment: string; uploadedAt?: string }[] }[] = [];
             try {
               const invoicesStr = entry.Step_7_Invoices_JSON as string;
               if (invoicesStr) existingInvoices = JSON.parse(invoicesStr);
@@ -625,25 +637,11 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
                     <div className="text-[10px] font-semibold mb-1" style={{ color: "var(--text-muted)" }}>
                       {"Batch " + batch.batch + " - "}<span style={{ color: "var(--text-secondary)" }}>{formatDate(batch.date)}</span>
                       {batch.submittedBy && <span className="ml-2" style={{ color: "var(--text-faint)" }}>by {batch.submittedBy}</span>}
+                      {batch.invoiceNo && <span className="ml-2 font-bold" style={{ color: "var(--primary)" }}>Inv# {batch.invoiceNo}</span>}
                     </div>
                     {(batch.items || []).map((item, iIdx) => (
                       <div key={iIdx} className="text-[10px] flex items-center flex-wrap gap-2 py-0.5" style={{ color: "var(--text)" }}>
                         <span>{item.itemName + ": " + item.quantityReceived + " received"}</span>
-                        {item.attachment && (
-                          <button
-                            type="button"
-                            onClick={() => { setSheetAttachmentUrl(item.attachment); setShowAttachmentSheet(true); }}
-                            className="text-[9px] px-1.5 py-0.5 rounded cursor-pointer font-semibold"
-                            style={{ color: "var(--primary)", background: "var(--primary-bg)", border: "1px solid var(--primary)" }}
-                          >
-                            📎 View Attachment
-                          </button>
-                        )}
-                        {item.uploadedAt && (
-                          <span className="text-[9px]" style={{ color: "var(--text-faint)" }}>
-                            ⏱️ {formatDate(item.uploadedAt)}
-                          </span>
-                        )}
                       </div>
                     ))}
                   </div>
@@ -664,6 +662,20 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
             );
           })()}
 
+          {/* Invoice Number */}
+          <div>
+            <label className="block text-[11px] font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>Invoice Number <span style={{ color: "var(--danger)" }}>*</span></label>
+            <input
+              type="text"
+              placeholder="Enter invoice number"
+              value={invoiceNumber}
+              onChange={(e) => setInvoiceNumber(e.target.value)}
+              className="w-full px-3 py-2 rounded-md text-xs outline-none"
+              style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
+            />
+          </div>
+
+          {/* Item quantities */}
           <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>Enter the quantity received for each item.</p>
           <div className="space-y-3">
             {requirements.map((req, idx) => {
@@ -705,31 +717,20 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
             })}
           </div>
 
-          {/* Single Invoice Attachment Upload */}
-          <div className="mt-4">
-            <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>Upload Invoice Attachment</label>
+          {/* Single invoice upload */}
+          <div>
+            <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>Upload Invoice</label>
             <div
-              className="border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-all hover:shadow-md"
-              style={{ borderColor: invoiceAttachment ? "var(--success)" : "var(--border)", background: invoiceAttachment ? "rgba(5,150,105,0.04)" : "var(--surface-2)" }}
+              className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-all hover:shadow-md"
+              style={{ borderColor: attachment ? "var(--success)" : "var(--border)", background: attachment ? "rgba(5,150,105,0.04)" : "var(--surface-2)" }}
               onClick={() => document.getElementById("file-step-7-invoice")?.click()}
             >
-              <input
-                type="file"
-                id="file-step-7-invoice"
-                className="hidden"
-                onChange={(e) => {
-                  if (e.target.files && e.target.files[0]) {
-                    setInvoiceAttachment(e.target.files[0]);
-                  }
-                }}
-              />
+              <input type="file" id="file-step-7-invoice" className="hidden" onChange={handleFileChange} />
               <div className="flex flex-col items-center gap-2">
-                <div style={{ color: invoiceAttachment ? "var(--success)" : "var(--text-muted)" }}>
+                <div style={{ color: attachment ? "var(--success)" : "var(--text-muted)" }}>
                   <UploadIcon />
                 </div>
-                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  {invoiceAttachment ? "📎 " + invoiceAttachment.name : "Click or tap to upload invoice"}
-                </p>
+                <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>{attachment ? "📎 " + attachment.name : "Click to upload invoice file"}</p>
               </div>
             </div>
           </div>
@@ -738,24 +739,6 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
 
       {stepNum === 8 && (
         <div className="space-y-4">
-          {/* Upload Attachment for Step 8 */}
-          <div>
-            <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>Upload Attachment</label>
-            <div
-              className="border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-all hover:shadow-md"
-              style={{ borderColor: attachment ? "var(--success)" : "var(--border)", background: attachment ? "rgba(5,150,105,0.04)" : "var(--surface-2)" }}
-              onClick={() => document.getElementById("file-step-8")?.click()}
-            >
-              <input type="file" id="file-step-8" className="hidden" onChange={handleFileChange} />
-              <div className="flex flex-col items-center gap-2">
-                <div style={{ color: attachment ? "var(--success)" : "var(--text-muted)" }}>
-                  <UploadIcon />
-                </div>
-                <p className="text-xs" style={{ color: "var(--text-muted)" }}>{attachment ? "📎 " + attachment.name : "Click or tap to upload file"}</p>
-              </div>
-            </div>
-          </div>
-
           {/* Show attachments from Step 7 with details */}
           {((): React.ReactNode => {
             let existingInvoices: { batch: number; date: string; submittedBy: string; items: { itemName: string; quantityReceived: number; totalQuantity: number; attachment: string }[] }[] = [];
