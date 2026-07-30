@@ -13,7 +13,7 @@ interface EnquiryFormProps {
   salesPersons: string[];
   companies: Record<string, unknown>[];
   initialData?: Record<string, unknown>;
-  onSubmit: (formData: Record<string, unknown>) => void;
+  onSubmit: (formData: Record<string, unknown>) => void | Promise<void>;
   onCancel: () => void;
 }
 
@@ -103,7 +103,7 @@ export default function EnquiryForm({ salesPersons, companies, initialData, onSu
     setRequirements(updated);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     // Validation
     const mobileStr = String(mobileNumber || "");
     const emailStr = String(emailId || "");
@@ -136,8 +136,11 @@ export default function EnquiryForm({ salesPersons, companies, initialData, onSu
       remark: remark.trim(),
     };
 
-    onSubmit(formData);
-    setSubmitting(false);
+    try {
+      await onSubmit(formData);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -344,9 +347,10 @@ export default function EnquiryForm({ salesPersons, companies, initialData, onSu
           type="button"
           onClick={handleSubmit}
           disabled={submitting}
-          className="px-4 py-2 rounded-md text-xs font-semibold text-white"
+          className="px-4 py-2 rounded-md text-xs font-semibold text-white disabled:opacity-50 flex items-center gap-1.5"
           style={{ background: "var(--success)" }}
         >
+          {submitting && <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
           {submitting ? "Submitting..." : initialData ? "Update" : "Submit"}
         </button>
       </div>
