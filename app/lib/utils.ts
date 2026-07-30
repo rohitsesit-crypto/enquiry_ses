@@ -39,15 +39,17 @@ export function formatDate(date: Date | string | null): string {
   return `${day}-${month}-${year} ${hStr}:${m}:${s} ${ampm}`;
 }
 /** Date only, no time: 31-07-2026 */
-export function formatDateOnly(date: Date | string | null): string {
+export function formatDateOnly(date: Date | string |null): string {
   if (!date) return '';
+
   const d = typeof date === 'string' ? parseDate(date) : date;
   if (isNaN(d.getTime())) return '';
+
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');
-  return `<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mrow><mi>d</mi><mi>a</mi><mi>y</mi></mrow><mo>−</mo></mrow><annotation encoding="application/x-tex">{day}-</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal">d</span><span class="mord mathnormal">a</span><span class="mord mathnormal" style="margin-right:0.0359em;">y</span></span><span class="mord">−</span></span></span></span>{month}-${d.getFullYear()}`;
-}
 
+  return `${day}-${month}-${d.getFullYear()}`;
+}
 export function formatTimestamp(ts: string | null): string {
   if (!ts) return '';
   const d = parseDate(ts);
@@ -104,21 +106,29 @@ export function generateGatePassNo(location: 'Mumbai' | 'Boisar', currentCount: 
 }
 
 export function isOverdue(plannedDate: string | null): boolean {
-  const planned = formatDateOnly(plannedDate);
-  if (!planned) return false;
+  if (!plannedDate) return false;
 
-  const today = formatDateOnly(new Date());
-  if (!today) return false;
+  const planned = parseDate(plannedDate);
+  if (isNaN(planned.getTime())) return false;
+
+  planned.setHours(0, 0, 0, 0);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
   return planned < today;
 }
 
 export function isToday(dateStr: string | null): boolean {
-  const date = formatDateOnly(dateStr);
-  if (!date) return false;
+  if (!dateStr) return false;
 
-  const today = formatDateOnly(new Date());
-  if (!today) return false;
+  const date = parseDate(dateStr);
+  if (isNaN(date.getTime())) return false;
+
+  date.setHours(0, 0, 0, 0);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
   return date.getTime() === today.getTime();
 }
