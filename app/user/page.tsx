@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { getUserDashboardData, verifyUser, submitNewEntry, submitStep, updateEntry } from "../lib/api";
 import { STEP_NAMES } from "../lib/types";
-import { formatDate, isOverdue, isToday, cn } from "../lib/utils";
+import { formatDate, isOverdue, isToday, cn, parseDateString } from "../lib/utils";
 import EnquiryForm from "../components/EnquiryForm";
 import StepWorkflow from "../components/StepWorkflow";
 
@@ -241,7 +241,7 @@ const completedEntries = Object.values(completedByEntry);
   // Group pending tasks by date
   const pendingByDate: Record<string, typeof pendingTasks> = {};
   pendingTasks.forEach((task) => {
-    const dateKey = task.plannedDate ? new Date(task.plannedDate).toDateString() : "No Date";
+    const dateKey = task.plannedDate ? parseDateString(task.plannedDate).toDateString() : "No Date";
     if (!pendingByDate[dateKey]) pendingByDate[dateKey] = [];
     pendingByDate[dateKey].push(task);
   });
