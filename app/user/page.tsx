@@ -828,20 +828,7 @@ function TaskDetailModal({
       </div>
 
       {/* PO Form Details in History */}
-      {poData && (
-        <div className="mb-4 p-3 rounded-lg" style={{ background: "rgba(37,99,235,0.04)", border: "1px solid rgba(37,99,235,0.12)" }}>
-          <h5 className="text-[11px] font-bold mb-2 flex items-center gap-1.5" style={{ color: "var(--primary)" }}>
-            📋 Purchase Order Details
-          </h5>
-          <div className="grid grid-cols-2 gap-2">
-            {poData.poNumber && <InfoRow label="PO Number" value={poData.poNumber} />}
-            {poData.poLocation && <InfoRow label="Location" value={poData.poLocation} />}
-            {poData.qNo && <InfoRow label="Q.No." value={poData.qNo} />}
-            {poData.deliveryDate && <InfoRow label="Delivery Date" value={formatDate(poData.deliveryDate)} />}
-            {poData.payTerms && <InfoRow label="Pay Terms" value={poData.payTerms + " days"} />}
-          </div>
-        </div>
-      )}
+     
 
       {/* Dispatch Form Details in History */}
       {dispatchData && (
