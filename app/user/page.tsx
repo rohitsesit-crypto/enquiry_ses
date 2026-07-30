@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { getUserDashboardData, verifyUser, submitNewEntry, submitStep, updateEntry } from "../lib/api";
 import { STEP_NAMES } from "../lib/types";
-import { formatDate, formatDateOnly, isOverdue, isToday, cn, parseDateString } from "../lib/utils";
+import { formatDate, isOverdue, isToday, cn, parseDateString } from "../lib/utils";
 import EnquiryForm from "../components/EnquiryForm";
 import StepWorkflow from "../components/StepWorkflow";
 
@@ -27,8 +27,8 @@ function UserDashboardContent() {
   const [showAttachmentSheet, setShowAttachmentSheet] = useState(false);
   const [sheetAttachmentUrl, setSheetAttachmentUrl] = useState("");
   const [refreshing, setRefreshing] = useState(false);
-  const [, setSubmittingStep] = useState(false);
-  const [, setEditingEntry] = useState(false);
+  const [submittingStep, setSubmittingStep] = useState(false);
+  const [editingEntry, setEditingEntry] = useState(false);
 
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -391,7 +391,7 @@ const completedEntries = Object.values(completedByEntry);
                               <div className="text-lg">{isOverdueDate ? "🔴" : isTodayDate ? "🟡" : "📅"}</div>
                               <div className="flex-1">
                                 <h3 className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: "var(--text)" }}>
-                                  {dateObj ? formatDateOnly(dateObj) : "No Date"}
+                                  {dateObj ? formatDate(dateObj) : "No Date"}
                                   {isTodayDate && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-white uppercase">TODAY</span>}
                                   {isOverdueDate && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-600 text-white uppercase">OVERDUE</span>}
                                 </h3>
@@ -422,6 +422,11 @@ const completedEntries = Object.values(completedByEntry);
                                       <h4 className="text-[13px] font-semibold truncate" style={{ color: "var(--text)" }}>{entryLabel}</h4>
                                     </div>
                                   </div>
+                                 {!!task.entry.Timestamp && (
+                                   <div className="text-[10px] mb-1" style={{ color: "var(--text-faint)" }}>
+                                     🕐 Submitted: {formatDate(String(task.entry.Timestamp))}
+                                   </div>
+                                 )}
                                  <div className="text-[11px] flex flex-wrap gap-1.5" style={{ color: "var(--text-muted)" }}>
   <span>{STEP_NAMES[task.stepNum]}</span>
   {assignedSteps.includes(task.stepNum) ? (
@@ -488,6 +493,7 @@ const completedEntries = Object.values(completedByEntry);
         {completedEntries.map((group, idx) => {
 const entryLabel = String(group.entry.Company_Name || "") + " · " + String(group.entry.Name_of_Enquirer || "");
           const latestDate = group.steps[group.steps.length - 1]?.actualDate;
+          const formTimestamp = group.entry.Timestamp ? String(group.entry.Timestamp) : "";
           return (
             <div
               key={idx}
@@ -520,10 +526,17 @@ const entryLabel = String(group.entry.Company_Name || "") + " · " + String(grou
                 ))}
               </div>
 
+              {/* Form submission timestamp */}
+              {formTimestamp && (
+                <div className="text-[10px] mb-1" style={{ color: "var(--text-faint)" }}>
+                  🕐 Submitted: {formatDate(formTimestamp)}
+                </div>
+              )}
+
               {/* Last completed date */}
               {latestDate && (
                 <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                  Last completed: {formatDateOnly(latestDate)}
+                  Last completed: {formatDate(latestDate)}
                 </div>
               )}
 
@@ -805,6 +818,7 @@ function TaskDetailModal({
 
       {/* Entry Info */}
       <div className="space-y-2 mb-6 p-4 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+        {!!entry.Timestamp && <InfoRow label="Submitted On" value={formatDate(String(entry.Timestamp))} />}
         {!!entry.Location && <InfoRow label="Location" value={String(entry.Location)} />}
         {!!entry.Company_Name && <InfoRow label="Company" value={String(entry.Company_Name)} />}
         {!!entry.Name_of_Enquirer && <InfoRow label="Enquirer" value={String(entry.Name_of_Enquirer)} />}
@@ -825,14 +839,14 @@ function TaskDetailModal({
         {!!entry.Sales_Person_Accountable && <InfoRow label="Sales Person" value={String(entry.Sales_Person_Accountable)} />}
         {!!entry.Type_of_Enquiry && <InfoRow label="Type" value={String(entry.Type_of_Enquiry)} />}
         {!!entry.Remark && <InfoRow label="Remark" value={String(entry.Remark)} />}
+        {!!entry.Submitted_By && <InfoRow label="Submitted By" value={String(entry.Submitted_By)} />}
       </div>
 
       {/* PO Form Details in History */}
-     
+      
 
       {/* Dispatch Form Details in History */}
-     
-
+      
       {/* Step Progress */}
       <h3 className="text-sm font-bold mb-4" style={{ color: "var(--text)" }}>
         {canViewAllSteps ? "Step Progress (View + Edit Access)" : "Step Progress (Your Authorized Steps)"}
