@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { getUserDashboardData, verifyUser, submitNewEntry, submitStep, updateEntry } from "../lib/api";
 import { STEP_NAMES } from "../lib/types";
-import { formatDate, isOverdue, isToday, cn, parseDateString } from "../lib/utils";
+import { formatDate, formatDateOnly, isOverdue, isToday, cn, parseDateString } from "../lib/utils";
 import EnquiryForm from "../components/EnquiryForm";
 import StepWorkflow from "../components/StepWorkflow";
 
