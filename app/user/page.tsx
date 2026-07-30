@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { getUserDashboardData, verifyUser, submitNewEntry, submitStep, updateEntry } from "../lib/api";
 import { STEP_NAMES } from "../lib/types";
-import { formatDate, formatDateOnly, formatTimestamp, isOverdue, isToday, cn, parseDateString } from "../lib/utils";
+import { formatDate, isOverdue, isToday, cn, parseDateString } from "../lib/utils";
 import EnquiryForm from "../components/EnquiryForm";
 import StepWorkflow from "../components/StepWorkflow";
 
@@ -28,6 +28,7 @@ function UserDashboardContent() {
   const [sheetAttachmentUrl, setSheetAttachmentUrl] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [submittingStep, setSubmittingStep] = useState(false);
+  const [editingEntry, setEditingEntry] = useState(false);
 
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -134,6 +135,7 @@ function UserDashboardContent() {
   };
 
   const handleEditEntry = async (entryId: string, formData: Record<string, unknown>) => {
+    setEditingEntry(true);
     try {
       const result = await updateEntry(email, entryId, formData);
       if (result.success) {
@@ -145,6 +147,8 @@ function UserDashboardContent() {
       }
     } catch {
       showToast("Connection error", "error");
+    } finally {
+      setEditingEntry(false);
     }
   };
 
@@ -387,7 +391,7 @@ const completedEntries = Object.values(completedByEntry);
                               <div className="text-lg">{isOverdueDate ? "🔴" : isTodayDate ? "🟡" : "📅"}</div>
                               <div className="flex-1">
                                 <h3 className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: "var(--text)" }}>
-{dateObj ? formatDateOnly(dateObj) : "No Date"}
+                                  {dateObj ? formatDate(dateObj) : "No Date"}
                                   {isTodayDate && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-white uppercase">TODAY</span>}
                                   {isOverdueDate && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-600 text-white uppercase">OVERDUE</span>}
                                 </h3>
@@ -598,7 +602,6 @@ const entryLabel = String(group.entry.Company_Name || "") + " · " + String(grou
               stepNum={showStepSubmit.stepNum}
               onSubmit={(data) => handleStepSubmit(showStepSubmit.entryId, showStepSubmit.stepNum, data)}
               onCancel={() => setShowStepSubmit(null)}
-              isSubmitting={submittingStep}
             />
           </div>
         </div>
@@ -766,9 +769,6 @@ function TaskDetailModal({
 
       {/* Entry Info */}
       <div className="space-y-2 mb-6 p-4 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-        {!!entry.Timestamp && <InfoRow label="Submitted On" value={formatTimestamp(String(entry.Timestamp))} />}
-{!!entry.Submitted_By && <InfoRow label="Submitted By" value={String(entry.Submitted_By)} />}
-
         {!!entry.Location && <InfoRow label="Location" value={String(entry.Location)} />}
         {!!entry.Company_Name && <InfoRow label="Company" value={String(entry.Company_Name)} />}
         {!!entry.Name_of_Enquirer && <InfoRow label="Enquirer" value={String(entry.Name_of_Enquirer)} />}
@@ -892,6 +892,75 @@ function TaskDetailModal({
                         >
                           📎 View Attachment
                         </button>
+                      )}
+
+                      {/* Step 4: Show PO Form Details */}
+                      {s === 4 && poData && (
+                        <div className="mt-2 p-2.5 rounded-lg" style={{ background: "rgba(37,99,235,0.04)", border: "1px solid rgba(37,99,235,0.12)" }}>
+                          <h6 className="text-[10px] font-bold mb-1.5" style={{ color: "var(--primary)" }}>📋 Purchase Order</h6>
+                          <div className="grid grid-cols-2 gap-1">
+                            {poData.poNumber && <div className="text-[10px]"><span className="font-semibold" style={{ color: "var(--text-secondary)" }}>PO#:</span> {poData.poNumber}</div>}
+                            {poData.poLocation && <div className="text-[10px]"><span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Location:</span> {poData.poLocation}</div>}
+                            {poData.qNo && <div className="text-[10px]"><span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Q.No:</span> {poData.qNo}</div>}
+                            {poData.deliveryDate && <div className="text-[10px]"><span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Delivery:</span> {formatDate(poData.deliveryDate)}</div>}
+                            {poData.payTerms && <div className="text-[10px]"><span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Pay Terms:</span> {poData.payTerms} days</div>}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Step 7: Show Invoice & Attachments */}
+                      {s === 7 && (() => {
+                        let invoices: { batch: number; date: string; submittedBy: string; items: { itemName: string; quantityReceived: number; totalQuantity: number; attachment: string }[] }[] = [];
+                        try {
+                          const invStr = entry.Step_7_Invoices_JSON as string;
+                          if (invStr) invoices = JSON.parse(invStr);
+                        } catch { /* ignore */ }
+                        if (invoices.length === 0) return null;
+                        return (
+                          <div className="mt-2 p-2.5 rounded-lg" style={{ background: "rgba(217,119,6,0.04)", border: "1px solid rgba(217,119,6,0.12)" }}>
+                            <h6 className="text-[10px] font-bold mb-1.5" style={{ color: "#d97706" }}>📦 Invoice Submissions ({invoices.length} batch{invoices.length > 1 ? "es" : ""})</h6>
+                            {invoices.map((batch, bIdx) => (
+                              <div key={bIdx} className="mb-1.5 p-1.5 rounded" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                                <div className="text-[9px] font-semibold mb-1" style={{ color: "var(--text-faint)" }}>
+                                  Batch {batch.batch} - {new Date(batch.date).toLocaleDateString()}
+                                  {batch.submittedBy && <span className="ml-1">by {batch.submittedBy}</span>}
+                                </div>
+                                {(batch.items || []).map((item, iIdx) => (
+                                  <div key={iIdx} className="flex items-center gap-2 py-0.5">
+                                    <span className="text-[10px]" style={{ color: "var(--text)" }}>
+                                      {item.itemName}: {item.quantityReceived}/{item.totalQuantity || "?"} received
+                                    </span>
+                                    {item.attachment && (
+                                      <button
+                                        type="button"
+                                        onClick={() => onViewAttachment(item.attachment)}
+                                        className="text-[9px] px-1.5 py-0.5 rounded cursor-pointer font-semibold"
+                                        style={{ color: "var(--primary)", background: "var(--primary-bg)", border: "1px solid var(--primary)" }}
+                                      >
+                                        📎 View
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Step 8: Show Dispatch Details */}
+                      {s === 8 && dispatchData && (
+                        <div className="mt-2 p-2.5 rounded-lg" style={{ background: "rgba(5,150,105,0.04)", border: "1px solid rgba(5,150,105,0.12)" }}>
+                          <h6 className="text-[10px] font-bold mb-1.5" style={{ color: "var(--success)" }}>🚚 Dispatch Details</h6>
+                          <div className="grid grid-cols-2 gap-1">
+                            {dispatchData.dispatchMode && <div className="text-[10px]"><span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Mode:</span> {dispatchData.dispatchMode}</div>}
+                            {dispatchData.dispatchName && <div className="text-[10px]"><span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Name:</span> {dispatchData.dispatchName}</div>}
+                            {dispatchData.dispatchMobNo && <div className="text-[10px]"><span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Mobile:</span> {dispatchData.dispatchMobNo}</div>}
+                            {dispatchData.invoiceChallanNo && <div className="text-[10px]"><span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Invoice/Challan:</span> {dispatchData.invoiceChallanNo}</div>}
+                            {dispatchData.gatePassNo && <div className="text-[10px]"><span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Gate Pass:</span> {dispatchData.gatePassNo}</div>}
+                            {dispatchData.lrNo && <div className="text-[10px]"><span className="font-semibold" style={{ color: "var(--text-secondary)" }}>LR No:</span> {dispatchData.lrNo}</div>}
+                          </div>
+                        </div>
                       )}
                     </>
                   )}
