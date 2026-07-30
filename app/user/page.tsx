@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { getUserDashboardData, verifyUser, submitNewEntry, submitStep, updateEntry } from "../lib/api";
 import { STEP_NAMES } from "../lib/types";
-import { formatDate, isOverdue, isToday, cn, parseDateString } from "../lib/utils";
+import { formatDate, formatDateOnly, isOverdue, isToday, cn, parseDateString } from "../lib/utils";
 import EnquiryForm from "../components/EnquiryForm";
 import StepWorkflow from "../components/StepWorkflow";
 
@@ -27,8 +27,8 @@ function UserDashboardContent() {
   const [showAttachmentSheet, setShowAttachmentSheet] = useState(false);
   const [sheetAttachmentUrl, setSheetAttachmentUrl] = useState("");
   const [refreshing, setRefreshing] = useState(false);
-  const [submittingStep, setSubmittingStep] = useState(false);
-  const [editingEntry, setEditingEntry] = useState(false);
+  const [, setSubmittingStep] = useState(false);
+  const [, setEditingEntry] = useState(false);
 
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -391,7 +391,7 @@ const completedEntries = Object.values(completedByEntry);
                               <div className="text-lg">{isOverdueDate ? "🔴" : isTodayDate ? "🟡" : "📅"}</div>
                               <div className="flex-1">
                                 <h3 className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: "var(--text)" }}>
-                                  {dateObj ? formatDate(dateObj) : "No Date"}
+                                  {dateObj ? formatDateOnly(dateObj) : "No Date"}
                                   {isTodayDate && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-white uppercase">TODAY</span>}
                                   {isOverdueDate && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-600 text-white uppercase">OVERDUE</span>}
                                 </h3>
@@ -523,7 +523,7 @@ const entryLabel = String(group.entry.Company_Name || "") + " · " + String(grou
               {/* Last completed date */}
               {latestDate && (
                 <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                  Last completed: {formatDate(latestDate)}
+                  Last completed: {formatDateOnly(latestDate)}
                 </div>
               )}
 
