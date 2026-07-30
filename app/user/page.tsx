@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { getUserDashboardData, verifyUser, submitNewEntry, submitStep, updateEntry } from "../lib/api";
 import { STEP_NAMES } from "../lib/types";
-import { formatDate, isOverdue, isToday, cn, parseDateString } from "../lib/utils";
+import { formatDate, formatDateOnly, formatTimestamp, isOverdue, isToday, cn, parseDateString } from "../lib/utils";
 import EnquiryForm from "../components/EnquiryForm";
 import StepWorkflow from "../components/StepWorkflow";
 
@@ -387,7 +387,7 @@ const completedEntries = Object.values(completedByEntry);
                               <div className="text-lg">{isOverdueDate ? "🔴" : isTodayDate ? "🟡" : "📅"}</div>
                               <div className="flex-1">
                                 <h3 className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: "var(--text)" }}>
-                                  {dateObj ? formatDate(dateObj) : "No Date"}
+{dateObj ? formatDateOnly(dateObj) : "No Date"}
                                   {isTodayDate && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-white uppercase">TODAY</span>}
                                   {isOverdueDate && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-600 text-white uppercase">OVERDUE</span>}
                                 </h3>
@@ -766,6 +766,9 @@ function TaskDetailModal({
 
       {/* Entry Info */}
       <div className="space-y-2 mb-6 p-4 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+        {!!entry.Timestamp && <InfoRow label="Submitted On" value={formatTimestamp(String(entry.Timestamp))} />}
+{!!entry.Submitted_By && <InfoRow label="Submitted By" value={String(entry.Submitted_By)} />}
+
         {!!entry.Location && <InfoRow label="Location" value={String(entry.Location)} />}
         {!!entry.Company_Name && <InfoRow label="Company" value={String(entry.Company_Name)} />}
         {!!entry.Name_of_Enquirer && <InfoRow label="Enquirer" value={String(entry.Name_of_Enquirer)} />}
