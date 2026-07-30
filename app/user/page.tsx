@@ -391,7 +391,7 @@ const completedEntries = Object.values(completedByEntry);
                               <div className="text-lg">{isOverdueDate ? "🔴" : isTodayDate ? "🟡" : "📅"}</div>
                               <div className="flex-1">
                                 <h3 className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: "var(--text)" }}>
-                                  {dateObj ? formatDate(dateObj) : "No Date"}
+                                  {dateObj ? formatDateOnly(dateObj) : "No Date"}
                                   {isTodayDate && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-white uppercase">TODAY</span>}
                                   {isOverdueDate && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-600 text-white uppercase">OVERDUE</span>}
                                 </h3>
