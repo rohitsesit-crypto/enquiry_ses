@@ -831,21 +831,7 @@ function TaskDetailModal({
      
 
       {/* Dispatch Form Details in History */}
-      {dispatchData && (
-        <div className="mb-4 p-3 rounded-lg" style={{ background: "rgba(5,150,105,0.04)", border: "1px solid rgba(5,150,105,0.12)" }}>
-          <h5 className="text-[11px] font-bold mb-2 flex items-center gap-1.5" style={{ color: "var(--success)" }}>
-            🚚 Dispatch Details
-          </h5>
-          <div className="grid grid-cols-2 gap-2">
-            {dispatchData.dispatchMode && <InfoRow label="Mode" value={dispatchData.dispatchMode} />}
-            {dispatchData.dispatchName && <InfoRow label="Name" value={dispatchData.dispatchName} />}
-            {dispatchData.dispatchMobNo && <InfoRow label="Mobile" value={dispatchData.dispatchMobNo} />}
-            {dispatchData.invoiceChallanNo && <InfoRow label="Invoice/Challan" value={dispatchData.invoiceChallanNo} />}
-            {dispatchData.gatePassNo && <InfoRow label="Gate Pass" value={dispatchData.gatePassNo} />}
-            {dispatchData.lrNo && <InfoRow label="LR No" value={dispatchData.lrNo} />}
-          </div>
-        </div>
-      )}
+     
 
       {/* Step Progress */}
       <h3 className="text-sm font-bold mb-4" style={{ color: "var(--text)" }}>
