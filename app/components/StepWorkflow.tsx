@@ -10,9 +10,10 @@ interface StepWorkflowProps {
   stepNum: number;
   onSubmit: (data: Record<string, unknown>) => void;
   onCancel: () => void;
+  isSubmitting?: boolean;
 }
 
-export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: StepWorkflowProps) {
+export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel, isSubmitting: externalSubmitting }: StepWorkflowProps) {
   const [status, setStatus] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -205,7 +206,10 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
     }
 
     onSubmit(data);
-    setSubmitting(false);
+    // Don't reset submitting here - let the parent control it via isSubmitting prop
+    if (!externalSubmitting) {
+      setSubmitting(false);
+    }
   };
 
   // Upload icon SVG component
@@ -815,7 +819,8 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
         <button
           type="button"
           onClick={onCancel}
-          className="px-4 py-2 rounded-md text-xs font-semibold cursor-pointer"
+          disabled={submitting || !!externalSubmitting}
+          className="px-4 py-2 rounded-md text-xs font-semibold cursor-pointer disabled:opacity-50"
           style={{ background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
         >
           Cancel
@@ -829,37 +834,41 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
           });
           const totalReceivedQty = invoiceEntries.reduce((sum, ie) => sum + parseInt(ie.quantityReceived || "0"), 0) + Object.values(historyTotals).reduce((sum, v) => sum + v, 0);
           const totalRequiredQty = requirements.reduce((sum, req) => sum + req.quantity, 0);
+          const isBusy = submitting || !!externalSubmitting || uploadingFile;
 
           return allMatched ? (
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={submitting || uploadingFile}
-              className="px-4 py-2 rounded-md text-xs font-semibold text-white disabled:opacity-50 cursor-pointer"
+              disabled={isBusy}
+              className="px-4 py-2 rounded-md text-xs font-semibold text-white disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
               style={{ background: "var(--success)" }}
             >
-              {uploadingFile ? "Uploading..." : submitting ? "Submitting..." : "✅ Submit → Move to Step 8"}
+              {isBusy && <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+              {uploadingFile ? "Uploading..." : isBusy ? "Submitting..." : "✅ Submit → Move to Step 8"}
             </button>
           ) : (
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={submitting || uploadingFile || invoiceEntries.every((ie) => parseInt(ie.quantityReceived || "0") === 0)}
-              className="px-4 py-2 rounded-md text-xs font-semibold text-white disabled:opacity-50 cursor-pointer"
+              disabled={isBusy || invoiceEntries.every((ie) => parseInt(ie.quantityReceived || "0") === 0)}
+              className="px-4 py-2 rounded-md text-xs font-semibold text-white disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
               style={{ background: "#d97706" }}
             >
-              {uploadingFile ? "Uploading..." : submitting ? "Submitting..." : "📦 Submit Partial (" + totalReceivedQty + "/" + totalRequiredQty + " received)"}
+              {isBusy && <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+              {uploadingFile ? "Uploading..." : isBusy ? "Submitting..." : "📦 Submit Partial (" + totalReceivedQty + "/" + totalRequiredQty + " received)"}
             </button>
           );
         })() : (
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={submitting || uploadingFile || (stepNum === 5 && status !== "Yes") || (stepNum === 9 && status !== "Yes") || (stepNum === 10 && status !== "Yes")}
-            className="px-4 py-2 rounded-md text-xs font-semibold text-white disabled:opacity-50 cursor-pointer"
+            disabled={submitting || !!externalSubmitting || uploadingFile || (stepNum === 5 && status !== "Yes") || (stepNum === 9 && status !== "Yes") || (stepNum === 10 && status !== "Yes")}
+            className="px-4 py-2 rounded-md text-xs font-semibold text-white disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
             style={{ background: "var(--success)" }}
           >
-            {uploadingFile ? "Uploading file..." : submitting ? "Submitting..." : "Submit"}
+            {(submitting || !!externalSubmitting) && <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+            {uploadingFile ? "Uploading file..." : (submitting || !!externalSubmitting) ? "Submitting..." : "Submit"}
           </button>
         )}
       </div>
