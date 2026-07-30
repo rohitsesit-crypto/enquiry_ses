@@ -29,14 +29,7 @@ export function formatDate(date: Date | string | null): string {
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const year = d.getFullYear();
-  let h = d.getHours();
-  const m = String(d.getMinutes()).padStart(2, '0');
-  const s = String(d.getSeconds()).padStart(2, '0');
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  h = h % 12;
-  if (h === 0) h = 12;
-  const hStr = String(h).padStart(2, '0');
-  return `${day}-${month}-${year} ${hStr}:${m}:${s} ${ampm}`;
+  return `${day}-${month}-${year}`;
 }
 
 export function formatTimestamp(ts: string | null): string {
