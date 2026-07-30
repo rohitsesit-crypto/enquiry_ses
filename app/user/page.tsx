@@ -384,7 +384,7 @@ const completedEntries = Object.values(completedByEntry);
                         <div key={dateKey} className="min-w-[320px] max-w-[380px] flex-1 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)", background: "var(--surface)" }}>
                           <div className="px-4 py-3.5" style={{ borderBottom: `2px solid ${isOverdueDate ? "var(--danger)" : isTodayDate ? "var(--warning)" : "var(--primary)"}` }}>
                             <div className="flex items-center gap-2.5">
-                              <div className="text-lg">{isOverdueDate ? "🔴" : isTodayDate ? "🟡" : "📅"}</div>
+                              <div className="text-lg">{isOverdueDate ? "🔴"  : "📅"}</div>
                               <div className="flex-1">
                                 <h3 className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: "var(--text)" }}>
                                   {dateObj ? formatDate(dateObj) : "No Date"}
