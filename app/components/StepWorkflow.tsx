@@ -315,46 +315,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
             };
           }
         }
-        if (!poData) return null;
-        return (
-          <div className="mb-4 p-3 rounded-lg" style={{ background: "rgba(37,99,235,0.04)", border: "1px solid rgba(37,99,235,0.12)" }}>
-            <h4 className="text-[11px] font-bold mb-2 flex items-center gap-1.5" style={{ color: "var(--primary)" }}>
-              📋 Purchase Order Entry
-            </h4>
-            <div className="grid grid-cols-2 gap-2">
-              {poData.poNumber && (
-                <div className="py-1">
-                  <span className="text-[9px] font-semibold block" style={{ color: "var(--text-faint)" }}>PO Number</span>
-                  <span className="text-[11px] font-medium" style={{ color: "var(--text)" }}>{poData.poNumber}</span>
-                </div>
-              )}
-              {poData.poLocation && (
-                <div className="py-1">
-                  <span className="text-[9px] font-semibold block" style={{ color: "var(--text-faint)" }}>Location</span>
-                  <span className="text-[11px] font-medium" style={{ color: "var(--text)" }}>{poData.poLocation}</span>
-                </div>
-              )}
-              {poData.qNo && (
-                <div className="py-1">
-                  <span className="text-[9px] font-semibold block" style={{ color: "var(--text-faint)" }}>Q.No.</span>
-                  <span className="text-[11px] font-medium" style={{ color: "var(--text)" }}>{poData.qNo}</span>
-                </div>
-              )}
-              {poData.deliveryDate && (
-                <div className="py-1">
-                  <span className="text-[9px] font-semibold block" style={{ color: "var(--text-faint)" }}>Delivery Date</span>
-                  <span className="text-[11px] font-medium" style={{ color: "var(--text)" }}>{formatDate(poData.deliveryDate)}</span>
-                </div>
-              )}
-              {poData.payTerms && (
-                <div className="py-1">
-                  <span className="text-[9px] font-semibold block" style={{ color: "var(--text-faint)" }}>Pay Terms</span>
-                  <span className="text-[11px] font-medium" style={{ color: "var(--text)" }}>{poData.payTerms} days</span>
-                </div>
-              )}
-            </div>
-          </div>
-        );
+        
       })()}
 
       {/* Dispatch History (from Step 8) */}
