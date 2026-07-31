@@ -401,7 +401,7 @@ const completedEntries = Object.values(completedByEntry);
                           </div>
                           <div className="p-2.5 flex flex-col gap-2 max-h-[600px] overflow-y-auto">
                             {tasks.map((task, idx) => {
-                              const entryLabel = `${String(task.entry.Company_Name || "")} · ${String(task.entry.Name_of_Enquirer || "")}`;
+                              const entryLabel = `${String(task.entry.Entry_ID || "")} - ${String(task.entry.Company_Name || "")} · ${String(task.entry.Name_of_Enquirer || "")}`;
 
                               return (
                                 <div
