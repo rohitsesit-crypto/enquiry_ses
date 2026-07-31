@@ -107,7 +107,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
     if (attachment) {
       setUploadingFile(true);
       const entryId = String(entry.Entry_ID || "unknown");
-      const result = await uploadToDrive(attachment, `FMS/${entryId}/step-${stepNum}`);
+      const result = await uploadToDrive(attachment, `ENQUIRY_CAPTURE_O2D/${entryId}/step-${stepNum}`);
       setUploadingFile(false);
 
       if (result.success && result.url) {
@@ -186,7 +186,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
         if (attachment) {
           setUploadingFile(true);
           const entryId = String(entry.Entry_ID || "unknown");
-          const uploadResult = await uploadToDrive(attachment, `FMS/${entryId}/step-7/invoices`);
+          const uploadResult = await uploadToDrive(attachment, `ENQUIRY_CAPTURE_O2D/${entryId}/step-7/invoices`);
           setUploadingFile(false);
           if (uploadResult.success && uploadResult.url) {
             invoiceAttachmentUrl = uploadResult.url;
