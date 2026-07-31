@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { STEP_NAMES } from "../lib/types";
 import { formatDate } from "../lib/utils";
-import { uploadToCloudinary } from "../lib/cloudinary";
+import { uploadToDrive } from "../lib/driveUpload";
 
 /**
  * Formats a Date object to Asian format: DD-MM-YYYY HH:MM:SS AM/PM
@@ -103,11 +103,11 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
 
     const data: Record<string, unknown> = { remark };
 
-    // Handle attachment upload to Cloudinary
+    // Handle attachment upload to Google Drive via Apps Script
     if (attachment) {
       setUploadingFile(true);
       const entryId = String(entry.Entry_ID || "unknown");
-      const result = await uploadToCloudinary(attachment, `fms/${entryId}/step-${stepNum}`);
+      const result = await uploadToDrive(attachment, `FMS/${entryId}/step-${stepNum}`);
       setUploadingFile(false);
 
       if (result.success && result.url) {
@@ -181,12 +181,12 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
           return;
         }
 
-        // Upload single invoice attachment to Cloudinary (if provided)
+        // Upload single invoice attachment to Google Drive via Apps Script (if provided)
         let invoiceAttachmentUrl = "";
         if (attachment) {
           setUploadingFile(true);
           const entryId = String(entry.Entry_ID || "unknown");
-          const uploadResult = await uploadToCloudinary(attachment, `fms/${entryId}/step-7/invoices`);
+          const uploadResult = await uploadToDrive(attachment, `FMS/${entryId}/step-7/invoices`);
           setUploadingFile(false);
           if (uploadResult.success && uploadResult.url) {
             invoiceAttachmentUrl = uploadResult.url;
@@ -850,10 +850,10 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
                           <button
                             type="button"
 onClick={() => {
-  // Extract clean Cloudinary URL from the stored string
-  // Format is: "Invoice XXX: https://res.cloudinary.com/...ext [timestamp]"
+  // Extract clean URL from the stored string
+  // Support both Cloudinary and Google Drive URLs
   let cleanUrl = item.attachment;
-  const urlMatch = item.attachment.match(/https?:\/\/res\.cloudinary\.com[^\s\[\]]+/);
+  const urlMatch = item.attachment.match(/https?:\/\/(res\.cloudinary\.com|drive\.google\.com|lh3\.googleusercontent\.com)[^\s\[\]]+/);
   if (urlMatch) {
     cleanUrl = urlMatch[0];
   }
