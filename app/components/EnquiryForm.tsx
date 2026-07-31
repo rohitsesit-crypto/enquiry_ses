@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { getCompanyAutoFill } from "../lib/api";
+import { formatDateOnly, formatStorageDate, toInputDate } from "../lib/utils";
 
 interface RequirementItem {
   itemName: string;
@@ -39,7 +40,8 @@ export default function EnquiryForm({ salesPersons, companies, initialData, onSu
     return [{ itemName: "", quantity: "", unit: "" }];
   });
   const [salesPerson, setSalesPerson] = useState((initialData?.Sales_Person_Accountable as string) || "");
-  const [salesCloseDate, setSalesCloseDate] = useState((initialData?.Sales_Close_Date as string) || "");
+  // Kept as YYYY-MM-DD for the native date input; converted to DD-MM-YYYY on submit
+  const [salesCloseDate, setSalesCloseDate] = useState(toInputDate((initialData?.Sales_Close_Date as string) || ""));
   const [typeOfEnquiry, setTypeOfEnquiry] = useState((initialData?.Type_of_Enquiry as string) || "");
   const [remark, setRemark] = useState((initialData?.Remark as string) || "");
   const [submitting, setSubmitting] = useState(false);
@@ -131,7 +133,7 @@ export default function EnquiryForm({ salesPersons, companies, initialData, onSu
         .filter((r) => r.itemName.trim())
         .map((r) => ({ itemName: r.itemName.trim(), quantity: parseInt(r.quantity) || 0, unit: r.unit.trim() })),
       salesPersonAccountable: salesPerson,
-      salesCloseDate,
+      salesCloseDate: formatStorageDate(salesCloseDate),
       typeOfEnquiry,
       remark: remark.trim(),
     };
@@ -304,6 +306,9 @@ export default function EnquiryForm({ salesPersons, companies, initialData, onSu
           className="w-full px-3 py-2 rounded-md text-xs outline-none"
           style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text)" }}
         />
+        {salesCloseDate && (
+          <p className="mt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>{formatDateOnly(salesCloseDate)}</p>
+        )}
       </FormField>
 
       {/* Type of Enquiry */}
@@ -367,4 +372,4 @@ function FormField({ label, required, children }: { label: string; required?: bo
       {children}
     </div>
   );
-}
+}  
