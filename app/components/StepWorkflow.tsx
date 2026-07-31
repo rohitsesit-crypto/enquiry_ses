@@ -2,26 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { STEP_NAMES } from "../lib/types";
-import { formatDate } from "../lib/utils";
+import { formatDate, formatDateOnly, formatStorageDate, formatStorageTimestamp, toInputDate } from "../lib/utils";
 import { uploadToDrive } from "../lib/driveUpload";
-
-/**
- * Formats a Date object to Asian format: DD-MM-YYYY HH:MM:SS AM/PM
- * Used for timestamping each attachment upload
- */
-function formatAsianTimestamp(date: Date): string {
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = date.getFullYear();
-  let h = date.getHours();
-  const m = String(date.getMinutes()).padStart(2, '0');
-  const s = String(date.getSeconds()).padStart(2, '0');
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  h = h % 12;
-  if (h === 0) h = 12;
-  const hStr = String(h).padStart(2, '0');
-  return `${day}-${month}-${year} ${hStr}:${m}:${s} ${ampm}`;
-}
 
 interface StepWorkflowProps {
   entry: Record<string, unknown>;
@@ -107,7 +89,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
     if (attachment) {
       setUploadingFile(true);
       const entryId = String(entry.Entry_ID || "unknown");
-      const result = await uploadToDrive(attachment, `ENQUIRY_CAPTURE_O2D/${entryId}/step-${stepNum}`);
+      const result = await uploadToDrive(attachment, `FMS/${entryId}/step-${stepNum}`);
       setUploadingFile(false);
 
       if (result.success && result.url) {
@@ -151,7 +133,8 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
           data.poNumber = poNumber.trim();
           data.poLocation = poLocation.trim();
           data.qNo = qNo.trim();
-          data.deliveryDate = deliveryDate;
+          // Persist as DD-MM-YYYY so the sheet never swaps day/month
+          data.deliveryDate = formatStorageDate(deliveryDate);
           data.payTerms = parseInt(payTerms);
         }
         break;
@@ -186,7 +169,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
         if (attachment) {
           setUploadingFile(true);
           const entryId = String(entry.Entry_ID || "unknown");
-          const uploadResult = await uploadToDrive(attachment, `ENQUIRY_CAPTURE_O2D/${entryId}/step-7/invoices`);
+          const uploadResult = await uploadToDrive(attachment, `FMS/${entryId}/step-7/invoices`);
           setUploadingFile(false);
           if (uploadResult.success && uploadResult.url) {
             invoiceAttachmentUrl = uploadResult.url;
@@ -198,7 +181,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
         }
 
         const now = new Date();
-        const uploadedAt = invoiceAttachmentUrl ? formatAsianTimestamp(now) : "";
+        const uploadedAt = invoiceAttachmentUrl ? formatStorageTimestamp(now) : "";
         const invoicesData = invoiceEntries.map((ie, idx) => ({
           itemName: ie.itemName,
           quantityReceived: parseInt(ie.quantityReceived || "0"),
@@ -220,7 +203,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
           data.step7AttachmentEntries = [{
             entryId: String(entry.Entry_ID || "unknown"),
             invoiceNo: invoiceNumber.trim(),
-            timestamp: formatAsianTimestamp(now),
+            timestamp: formatStorageTimestamp(now),
             attachmentUrl: invoiceAttachmentUrl,
           }];
         }
@@ -619,7 +602,10 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
               <InputField label="Q.No." value={qNo} onChange={setQNo} required />
               <div>
                 <label className="block text-[11px] font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>Delivery Date <span style={{ color: "var(--danger)" }}>*</span></label>
-                <input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} className="w-full px-3 py-2 rounded-md text-xs outline-none" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
+                <input type="date" value={toInputDate(deliveryDate)} onChange={(e) => setDeliveryDate(e.target.value)} className="w-full px-3 py-2 rounded-md text-xs outline-none" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
+                {deliveryDate && (
+                  <p className="mt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>{formatDateOnly(deliveryDate)}</p>
+                )}
               </div>
               <InputField label="Pay Terms (days)" value={payTerms} onChange={setPayTerms} type="number" required />
             </div>
@@ -843,7 +829,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
                         <div className="flex-1">
                           <div className="text-[11px] font-semibold" style={{ color: "var(--text)" }}>{item.itemName}</div>
                           <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                            Qty: {item.quantityReceived} received (Batch {item.batch} - {new Date(item.date).toLocaleDateString()})
+                            Qty: {item.quantityReceived} received (Batch {item.batch} - {formatDateOnly(item.date)})
                           </div>
                         </div>
                         {item.attachment && (
