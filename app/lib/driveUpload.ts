@@ -47,7 +47,7 @@ export async function uploadToDrive(file: File, folder?: string): Promise<DriveU
       fileName: file.name,
       mimeType: file.type,
       base64Data: base64Data,
-      folder: folder || 'FMS_Attachments',
+      folder: folder || 'ENQUIRY_CAPTURE_O2D',
     };
 
     const response = await fetch(SCRIPT_URL, {
