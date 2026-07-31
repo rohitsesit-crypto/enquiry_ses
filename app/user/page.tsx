@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { getUserDashboardData, verifyUser, submitNewEntry, submitStep, updateEntry } from "../lib/api";
 import { STEP_NAMES } from "../lib/types";
-import { formatDate, formatDateOnly, isOverdue, isToday, cn, parseDateString } from "../lib/utils";
+import { formatDate, formatDateOnly, formatStorageDate, isOverdue, isToday, cn, parseDateString } from "../lib/utils";
 import EnquiryForm from "../components/EnquiryForm";
 import StepWorkflow from "../components/StepWorkflow";
 
@@ -241,7 +241,8 @@ const completedEntries = Object.values(completedByEntry);
   // Group pending tasks by date
   const pendingByDate: Record<string, typeof pendingTasks> = {};
   pendingTasks.forEach((task) => {
-    const dateKey = task.plannedDate ? parseDateString(task.plannedDate).toDateString() : "No Date";
+    // Key uses DD-MM-YYYY so it stays day-first and re-parses unambiguously
+    const dateKey = task.plannedDate ? formatStorageDate(task.plannedDate) || "No Date" : "No Date";
     if (!pendingByDate[dateKey]) pendingByDate[dateKey] = [];
     pendingByDate[dateKey].push(task);
   });
@@ -249,7 +250,7 @@ const completedEntries = Object.values(completedByEntry);
   const sortedDateKeys = Object.keys(pendingByDate).sort((a, b) => {
     if (a === "No Date") return 1;
     if (b === "No Date") return -1;
-    return new Date(a).getTime() - new Date(b).getTime();
+    return parseDateString(a).getTime() - parseDateString(b).getTime();
   });
 
   return (
@@ -380,7 +381,7 @@ const completedEntries = Object.values(completedByEntry);
                   <div className="flex gap-4 overflow-x-auto pb-4">
                     {sortedDateKeys.map((dateKey) => {
                       const tasks = pendingByDate[dateKey];
-                      const dateObj = dateKey !== "No Date" ? new Date(dateKey) : null;
+                      const dateObj = dateKey !== "No Date" ? parseDateString(dateKey) : null;
                       const isTodayDate = dateObj ? isToday(dateObj.toISOString()) : false;
                       const isOverdueDate = dateObj ? isOverdue(dateObj.toISOString()) : false;
 
@@ -837,6 +838,7 @@ function TaskDetailModal({
           </div>
         )}
         {!!entry.Sales_Person_Accountable && <InfoRow label="Sales Person" value={String(entry.Sales_Person_Accountable)} />}
+        {!!entry.Sales_Close_Date && <InfoRow label="Sales Close Date" value={formatDateOnly(String(entry.Sales_Close_Date))} />}
         {!!entry.Type_of_Enquiry && <InfoRow label="Type" value={String(entry.Type_of_Enquiry)} />}
         {!!entry.Remark && <InfoRow label="Remark" value={String(entry.Remark)} />}
         {!!entry.Submitted_By && <InfoRow label="Submitted By" value={String(entry.Submitted_By)} />}
