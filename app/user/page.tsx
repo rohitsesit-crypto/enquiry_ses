@@ -911,8 +911,9 @@ function TaskDetailModal({
                           type="button"
                           onClick={() => {
   let cleanUrl = stepAttachment;
-  // Handle Step 7 combined format: "Invoice XXX: URL [timestamp]"
-  const urlMatch = stepAttachment.match(/https?:\/\/res\.cloudinary\.com[^\s\[\]]+/);
+  // Handle combined format: "Invoice XXX: URL [timestamp]"
+  // Support both Cloudinary and Google Drive URLs
+  const urlMatch = stepAttachment.match(/https?:\/\/(res\.cloudinary\.com|drive\.google\.com|lh3\.googleusercontent\.com)[^\s\[\]]+/);
   if (urlMatch) {
     cleanUrl = urlMatch[0];
   }
@@ -967,7 +968,8 @@ function TaskDetailModal({
                                         type="button"
                                         onClick={() => {
   let cleanUrl = item.attachment;
-  const urlMatch = item.attachment.match(/https?:\/\/res\.cloudinary\.com[^\s\[\]]+/);
+  // Support both Cloudinary and Google Drive URLs
+  const urlMatch = item.attachment.match(/https?:\/\/(res\.cloudinary\.com|drive\.google\.com|lh3\.googleusercontent\.com)[^\s\[\]]+/);
   if (urlMatch) {
     cleanUrl = urlMatch[0];
   }
