@@ -1,4 +1,5 @@
 // Utility functions for Enquiry Capture O2D
+// Enhanced with robust data normalization for manual Google Sheet entries
 
 /** Short month names used for all UI date rendering: 28 Jul 2026 */
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -25,6 +26,7 @@ function to24Hour(hour: number, ampm?: string | null): number {
  *  - DD-MM-YYYY / DD/MM/YYYY / DD.MM.YYYY  (with or without time)
  *  - DD Mon YYYY                (UI format, e.g. 28 Jul 2026, with or without time)
  *  - YYYY-MM-DD                 (native <input type="date"> value)
+ *  - MM/DD/YYYY                 (US format from Google Sheets auto-format)
  *  - Any other value understood by the Date constructor (ISO strings)
  */
 export function parseDateString(dateStr: string | Date | null): Date {
@@ -42,10 +44,24 @@ function parseDate(input: string | Date | null): Date {
   );
   if (numeric) {
     const [, day, month, year, hours, minutes, seconds, ampm] = numeric;
+    const dayNum = parseInt(day);
+    const monthNum = parseInt(month);
+    
+    // Heuristic: if day > 12, it's definitely DD-MM-YYYY
+    // If month > 12, it's definitely MM-DD-YYYY (US format from Sheets)
+    let finalDay = dayNum;
+    let finalMonth = monthNum - 1;
+    
+    if (monthNum > 12) {
+      // This is DD-MM-YYYY but month value > 12 means it's actually MM/DD/YYYY
+      finalDay = monthNum;
+      finalMonth = dayNum - 1;
+    }
+    
     return new Date(
       parseInt(year),
-      parseInt(month) - 1,
-      parseInt(day),
+      finalMonth,
+      finalDay,
       to24Hour(parseInt(hours || '0'), ampm),
       parseInt(minutes || '0'),
       parseInt(seconds || '0')
@@ -78,7 +94,16 @@ function parseDate(input: string | Date | null): Date {
     return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
   }
 
-  // 4) Fallback to standard Date parsing (ISO timestamps etc.)
+  // 4) Google Sheets serial date number (e.g., 45678)
+  const serialNum = parseFloat(str);
+  if (!isNaN(serialNum) && serialNum > 25000 && serialNum < 100000 && str.match(/^\d+\.?\d*$/)) {
+    // Google Sheets serial date: days since Dec 30, 1899
+    const baseDate = new Date(1899, 11, 30);
+    const resultDate = new Date(baseDate.getTime() + serialNum * 24 * 60 * 60 * 1000);
+    return resultDate;
+  }
+
+  // 5) Fallback to standard Date parsing (ISO timestamps etc.)
   return new Date(str);
 }
 
@@ -227,4 +252,286 @@ export function isToday(dateStr: string | null): boolean {
 
 export function cn(...classes: (string | boolean | undefined | null)[]): string {
   return classes.filter(Boolean).join(' ');
+}
+
+// ==================== DATA NORMALIZATION ====================
+
+/**
+ * Normalizes a boolean value from Google Sheets.
+ * Handles: TRUE, FALSE, true, false, "TRUE", "FALSE", 1, 0, "1", "0", yes, no, etc.
+ */
+export function normalizeBoolean(value: unknown): boolean {
+  if (value === true || value === false) return value;
+  if (value === 1 || value === '1') return true;
+  if (value === 0 || value === '0') return false;
+  const str = String(value ?? '').trim().toLowerCase();
+  return str === 'true' || str === 'yes' || str === 'y';
+}
+
+/**
+ * Normalizes a number value from Google Sheets.
+ * Handles: numbers, strings that look like numbers, empty strings, etc.
+ */
+export function normalizeNumber(value: unknown, defaultValue: number = 0): number {
+  if (typeof value === 'number' && !isNaN(value)) return value;
+  const str = String(value ?? '').trim();
+  if (!str) return defaultValue;
+  const num = parseFloat(str);
+  return isNaN(num) ? defaultValue : num;
+}
+
+/**
+ * Normalizes a string value from Google Sheets.
+ * Handles: null, undefined, numbers, booleans, objects, etc.
+ */
+export function normalizeString(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') {
+    try { return JSON.stringify(value); } catch { return ''; }
+  }
+  return String(value).trim();
+}
+
+/**
+ * Normalizes a JSON string from Google Sheets.
+ * Handles: already-parsed objects, malformed JSON, empty values, etc.
+ */
+export function normalizeJSON<T>(value: unknown, defaultValue: T): T {
+  if (value === null || value === undefined || value === '') return defaultValue;
+  if (typeof value === 'object' && !Array.isArray(value) && value !== null) {
+    return value as T;
+  }
+  if (Array.isArray(value)) return value as unknown as T;
+  const str = String(value).trim();
+  if (!str || str === '[]' || str === '{}') return defaultValue;
+  try {
+    return JSON.parse(str) as T;
+  } catch {
+    return defaultValue;
+  }
+}
+
+/**
+ * Normalizes a complete entry row from Google Sheets.
+ * Ensures all fields have proper types regardless of how they were entered.
+ */
+export function normalizeEntry(entry: Record<string, unknown>): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...entry };
+
+  // Normalize core fields
+  normalized.Entry_ID = normalizeString(entry.Entry_ID);
+  normalized.Serial_No = normalizeNumber(entry.Serial_No);
+  normalized.Timestamp = normalizeString(entry.Timestamp);
+  normalized.Submitted_By = normalizeString(entry.Submitted_By);
+  normalized.Location = normalizeString(entry.Location);
+  normalized.Company_Name = normalizeString(entry.Company_Name);
+  normalized.Name_of_Enquirer = normalizeString(entry.Name_of_Enquirer);
+  normalized.Mobile_Number = normalizeString(entry.Mobile_Number);
+  normalized.Email_Id = normalizeString(entry.Email_Id);
+  normalized.Sales_Person_Accountable = normalizeString(entry.Sales_Person_Accountable);
+  normalized.Sales_Close_Date = normalizeString(entry.Sales_Close_Date);
+  normalized.Type_of_Enquiry = normalizeString(entry.Type_of_Enquiry);
+  normalized.Remark = normalizeString(entry.Remark);
+  normalized.Current_Step = normalizeNumber(entry.Current_Step, 1);
+  normalized.Is_Completed = normalizeBoolean(entry.Is_Completed);
+  normalized.Is_Stopped = normalizeBoolean(entry.Is_Stopped);
+
+  // Normalize Requirements_JSON
+  const reqRaw = entry.Requirements_JSON;
+  if (reqRaw && typeof reqRaw === 'string') {
+    normalized.Requirements_JSON = reqRaw;
+  } else if (Array.isArray(reqRaw)) {
+    normalized.Requirements_JSON = JSON.stringify(reqRaw);
+  } else {
+    normalized.Requirements_JSON = '[]';
+  }
+
+  // Normalize step fields
+  for (let s = 1; s <= 10; s++) {
+    const statusKey = `Step_${s}_Status`;
+    const plannedKey = `Step_${s}_Planned_Date`;
+    const actualKey = `Step_${s}_Actual_Date`;
+    const delayKey = `Step_${s}_Delay_Days`;
+    const attachKey = `Step_${s}_Attachment`;
+    const completedByKey = `Step_${s}_Completed_By`;
+    const completedTsKey = `Step_${s}_Completed_Timestamp`;
+    const condKey = `Step_${s}_Condition_Answer`;
+    const remarkKey = `Step_${s}_Remark`;
+
+    // Normalize status - handle various text inputs
+    const rawStatus = normalizeString(entry[statusKey]).toLowerCase();
+    if (rawStatus === 'completed' || rawStatus === 'done' || rawStatus === 'complete') {
+      normalized[statusKey] = 'Completed';
+    } else if (rawStatus === 'pending' || rawStatus === 'in progress' || rawStatus === 'active') {
+      normalized[statusKey] = 'Pending';
+    } else if (rawStatus === 'locked' || rawStatus === 'lock' || rawStatus === '') {
+      normalized[statusKey] = 'Locked';
+    } else if (rawStatus === 'stopped' || rawStatus === 'stop' || rawStatus === 'cancelled') {
+      normalized[statusKey] = 'Stopped';
+    } else if (rawStatus === 'skipped' || rawStatus === 'skip') {
+      normalized[statusKey] = 'Skipped';
+    } else {
+      // Keep original if it's already a valid status
+      const original = normalizeString(entry[statusKey]);
+      normalized[statusKey] = original || 'Locked';
+    }
+
+    normalized[plannedKey] = normalizeString(entry[plannedKey]);
+    normalized[actualKey] = normalizeString(entry[actualKey]);
+    normalized[delayKey] = normalizeNumber(entry[delayKey], 0);
+    normalized[attachKey] = normalizeString(entry[attachKey]);
+    normalized[completedByKey] = normalizeString(entry[completedByKey]);
+    normalized[completedTsKey] = normalizeString(entry[completedTsKey]);
+    normalized[condKey] = normalizeString(entry[condKey]);
+    normalized[remarkKey] = normalizeString(entry[remarkKey]);
+  }
+
+  // Normalize Step 4 PO fields
+  normalized.Step_4_PO_Number = normalizeString(entry.Step_4_PO_Number);
+  normalized.Step_4_PO_Location = normalizeString(entry.Step_4_PO_Location);
+  normalized.Step_4_PO_QNo = normalizeString(entry.Step_4_PO_QNo);
+  normalized.Step_4_PO_Delivery_Date = normalizeString(entry.Step_4_PO_Delivery_Date);
+  normalized.Step_4_PO_PayTerms = normalizeString(entry.Step_4_PO_PayTerms);
+  normalized.Step_4_PO_JSON = normalizeString(entry.Step_4_PO_JSON);
+
+  // Normalize Step 7 Invoice fields
+  normalized.Step_7_Invoices_JSON = normalizeString(entry.Step_7_Invoices_JSON);
+
+  // Normalize Step 8 Dispatch fields
+  normalized.Step_8_Dispatch_Mode = normalizeString(entry.Step_8_Dispatch_Mode);
+  normalized.Step_8_Dispatch_Name = normalizeString(entry.Step_8_Dispatch_Name);
+  normalized.Step_8_Dispatch_MobNo = normalizeString(entry.Step_8_Dispatch_MobNo);
+  normalized.Step_8_Dispatch_InvoiceChallanNo = normalizeString(entry.Step_8_Dispatch_InvoiceChallanNo);
+  normalized.Step_8_Dispatch_GatePassNo = normalizeString(entry.Step_8_Dispatch_GatePassNo);
+  normalized.Step_8_Dispatch_LRNo = normalizeString(entry.Step_8_Dispatch_LRNo);
+  normalized.Step_8_Dispatch_JSON = normalizeString(entry.Step_8_Dispatch_JSON);
+
+  // Handle Challan_Number if present
+  if (entry.Challan_Number !== undefined) {
+    normalized.Challan_Number = normalizeString(entry.Challan_Number);
+  }
+
+  return normalized;
+}
+
+/**
+ * Normalizes an array of entries from Google Sheets.
+ * Filters out completely empty rows.
+ */
+export function normalizeEntries(entries: Record<string, unknown>[]): Record<string, unknown>[] {
+  return entries
+    .map(normalizeEntry)
+    .filter((entry) => {
+      // Filter out rows that have no Entry_ID and no Company_Name (likely empty rows)
+      const id = String(entry.Entry_ID || '').trim();
+      const company = String(entry.Company_Name || '').trim();
+      return id !== '' || company !== '';
+    });
+}
+
+/**
+ * Generates a hash of entries data for change detection.
+ * Used to determine if data has changed since last fetch.
+ */
+export function generateDataHash(entries: Record<string, unknown>[]): string {
+  const key = entries.map((e) => {
+    return `${e.Entry_ID}|${e.Current_Step}|${e.Is_Completed}|${e.Is_Stopped}|${
+      Array.from({ length: 10 }, (_, i) => e[`Step_${i + 1}_Status`] || '').join(',')
+    }`;
+  }).join('||');
+  
+  // Simple hash function
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    const char = key.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return String(Math.abs(hash));
+}
+
+/**
+ * Compares two sets of entries and returns what changed.
+ */
+export function detectChanges(
+  oldEntries: Record<string, unknown>[],
+  newEntries: Record<string, unknown>[]
+): {
+  newItems: Record<string, unknown>[];
+  updatedItems: { entry: Record<string, unknown>; changes: string[] }[];
+  removedIds: string[];
+} {
+  const oldMap = new Map<string, Record<string, unknown>>();
+  oldEntries.forEach((e) => {
+    const id = String(e.Entry_ID || '');
+    if (id) oldMap.set(id, e);
+  });
+
+  const newMap = new Map<string, Record<string, unknown>>();
+  newEntries.forEach((e) => {
+    const id = String(e.Entry_ID || '');
+    if (id) newMap.set(id, e);
+  });
+
+  const newItems: Record<string, unknown>[] = [];
+  const updatedItems: { entry: Record<string, unknown>; changes: string[] }[] = [];
+  const removedIds: string[] = [];
+
+  // Find new and updated entries
+  newMap.forEach((newEntry, id) => {
+    const oldEntry = oldMap.get(id);
+    if (!oldEntry) {
+      newItems.push(newEntry);
+    } else {
+      const changes: string[] = [];
+      // Check key fields for changes
+      if (String(oldEntry.Current_Step) !== String(newEntry.Current_Step)) {
+        changes.push(`Step changed to ${newEntry.Current_Step}`);
+      }
+      if (normalizeBoolean(oldEntry.Is_Completed) !== normalizeBoolean(newEntry.Is_Completed)) {
+        changes.push(normalizeBoolean(newEntry.Is_Completed) ? 'Completed' : 'Reopened');
+      }
+      if (normalizeBoolean(oldEntry.Is_Stopped) !== normalizeBoolean(newEntry.Is_Stopped)) {
+        changes.push(normalizeBoolean(newEntry.Is_Stopped) ? 'Stopped' : 'Resumed');
+      }
+      // Check step statuses
+      for (let s = 1; s <= 10; s++) {
+        const oldStatus = String(oldEntry[`Step_${s}_Status`] || '');
+        const newStatus = String(newEntry[`Step_${s}_Status`] || '');
+        if (oldStatus !== newStatus && newStatus) {
+          changes.push(`Step ${s}: ${oldStatus || 'none'} → ${newStatus}`);
+        }
+      }
+      if (changes.length > 0) {
+        updatedItems.push({ entry: newEntry, changes });
+      }
+    }
+  });
+
+  // Find removed entries
+  oldMap.forEach((_, id) => {
+    if (!newMap.has(id)) {
+      removedIds.push(id);
+    }
+  });
+
+  return { newItems, updatedItems, removedIds };
+}
+
+/**
+ * Formats a relative time string (e.g., "5 seconds ago", "2 minutes ago")
+ */
+export function formatRelativeTime(date: Date | null): string {
+  if (!date) return 'Never';
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  
+  if (diffSec < 5) return 'Just now';
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  return formatDateOnly(date);
 }
