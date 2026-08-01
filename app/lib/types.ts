@@ -105,3 +105,61 @@ export const STEP_NAMES: Record<number, string> = {
   9: 'IMS Entry Outward',
   10: 'Reminder',
 };
+
+// ==================== SYNC & REAL-TIME TYPES ====================
+
+export interface SyncState {
+  lastSyncTime: Date | null;
+  isSyncing: boolean;
+  syncError: string | null;
+  dataHash: string | null;
+}
+
+export interface SyncNotification {
+  id: string;
+  type: 'new_entry' | 'updated_entry' | 'new_entries' | 'step_changed' | 'data_refreshed';
+  message: string;
+  timestamp: Date;
+  entryId?: string;
+  count?: number;
+}
+
+export interface NormalizedEntry {
+  Entry_ID: string;
+  Serial_No: number;
+  Timestamp: string;
+  Submitted_By: string;
+  Location: string;
+  Company_Name: string;
+  Name_of_Enquirer: string;
+  Mobile_Number: string;
+  Email_Id: string;
+  Requirements_JSON: string;
+  Sales_Person_Accountable: string;
+  Sales_Close_Date: string;
+  Type_of_Enquiry: string;
+  Remark: string;
+  Current_Step: number;
+  Is_Completed: boolean;
+  Is_Stopped: boolean;
+  Challan_Number?: string;
+  [key: string]: unknown;
+}
+
+export interface SyncConfig {
+  /** Polling interval in milliseconds (default: 5000 = 5 seconds) */
+  pollInterval: number;
+  /** Whether to show notifications for changes */
+  showNotifications: boolean;
+  /** Maximum number of notifications to keep */
+  maxNotifications: number;
+  /** Whether sync is enabled */
+  enabled: boolean;
+}
+
+export const DEFAULT_SYNC_CONFIG: SyncConfig = {
+  pollInterval: 5000,
+  showNotifications: true,
+  maxNotifications: 10,
+  enabled: true,
+};
