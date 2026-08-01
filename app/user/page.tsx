@@ -17,7 +17,7 @@ function UserDashboardContent() {
   const [userName, setUserName] = useState("");
   const [error, setError] = useState("");
   const [dashboardData, setDashboardData] = useState<Record<string, unknown> | null>(null);
-  const [currentSection, setCurrentSection] = useState<"pending" | "completed">("pending");
+  const [currentSection, setCurrentSection] = useState<"pending" | "completed" | "all">("pending");
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [showTaskDetail, setShowTaskDetail] = useState<{ entryId: string; stepNum: number } | null>(null);
   const [showStepSubmit, setShowStepSubmit] = useState<{ entryId: string; stepNum: number; entry: Record<string, unknown> } | null>(null);
@@ -193,14 +193,17 @@ function UserDashboardContent() {
   const salesPersons = (dashboardData?.salesPersons as string[]) || [];
   const companies = (dashboardData?.companies as Record<string, unknown>[]) || [];
 
-  // Categorize tasks - ONLY show tasks for assigned steps
-  const pendingTasks: { entry: Record<string, unknown>; stepNum: number; plannedDate: string | null }[] = [];
-  const completedTasks: { entry: Record<string, unknown>; stepNum: number; actualDate: string | null }[] = [];
+  // Categorize tasks - Show ALL entries in pending, not just those with "Pending" status
+const pendingTasks: { entry: Record<string, unknown>; stepNum: number; plannedDate: string | null }[] = [];
+const completedTasks: { entry: Record<string, unknown>; stepNum: number; actualDate: string | null }[] = [];
 
 entries.forEach((entry) => {
+  const isCompleted = entry.Is_Completed === true || entry.Is_Completed === "true" || entry.Is_Completed === "TRUE";
+  const isStopped = entry.Is_Stopped === true || entry.Is_Stopped === "true" || entry.Is_Stopped === "TRUE";
+  
+  let hasShownInPending = false;
+  
   for (let s = 1; s <= 10; s++) {
-    // If canViewAllSteps is true, show ALL steps
-    // If canViewAllSteps is false, show ONLY assigned steps
     if (!canViewAllSteps && !assignedSteps.includes(s)) continue;
     
     const status = entry[`Step_${s}_Status`] as string;
@@ -210,6 +213,7 @@ entries.forEach((entry) => {
         stepNum: s,
         plannedDate: entry[`Step_${s}_Planned_Date`] as string | null,
       });
+      hasShownInPending = true;
     } else if (status === "Completed") {
       completedTasks.push({
         entry,
@@ -218,30 +222,45 @@ entries.forEach((entry) => {
       });
     }
   }
-});
-// Group completed tasks by Entry_ID
-const completedByEntry: Record<string, { entry: Record<string, unknown>; steps: { stepNum: number; actualDate: string | null }[] }> = {};
-
-completedTasks.forEach((task) => {
-  const entryId = String(task.entry.Entry_ID);
-  if (!completedByEntry[entryId]) {
-    completedByEntry[entryId] = { entry: task.entry, steps: [] };
+  
+  // If entry has no "Pending" step shown but is NOT completed/stopped, 
+  // still show it in pending tasks at its current step
+  if (!hasShownInPending && !isCompleted && !isStopped) {
+    const currentStep = Number(entry.Current_Step) || 1;
+    // Show at current step if user has access, otherwise show at first assigned step
+    const stepToShow = (canViewAllSteps || assignedSteps.includes(currentStep)) 
+      ? currentStep 
+      : (assignedSteps.length > 0 ? assignedSteps[0] : currentStep);
+    
+    pendingTasks.push({
+      entry,
+      stepNum: stepToShow,
+      plannedDate: entry[`Step_${stepToShow}_Planned_Date`] as string | null,
+    });
   }
-  completedByEntry[entryId].steps.push({ stepNum: task.stepNum, actualDate: task.actualDate });
 });
 
-// Sort steps within each entry
-Object.values(completedByEntry).forEach((group) => {
-  group.steps.sort((a, b) => a.stepNum - b.stepNum);
-});
 
-const completedEntries = Object.values(completedByEntry);
+  // Group completed tasks by Entry_ID
+  const completedByEntry: Record<string, { entry: Record<string, unknown>; steps: { stepNum: number; actualDate: string | null }[] }> = {};
 
+  completedTasks.forEach((task) => {
+    const entryId = String(task.entry.Entry_ID);
+    if (!completedByEntry[entryId]) {
+      completedByEntry[entryId] = { entry: task.entry, steps: [] };
+    }
+    completedByEntry[entryId].steps.push({ stepNum: task.stepNum, actualDate: task.actualDate });
+  });
+
+  Object.values(completedByEntry).forEach((group) => {
+    group.steps.sort((a, b) => a.stepNum - b.stepNum);
+  });
+
+  const completedEntries = Object.values(completedByEntry);
 
   // Group pending tasks by date
   const pendingByDate: Record<string, typeof pendingTasks> = {};
   pendingTasks.forEach((task) => {
-    // Key uses DD-MM-YYYY so it stays day-first and re-parses unambiguously
     const dateKey = task.plannedDate ? formatStorageDate(task.plannedDate) || "No Date" : "No Date";
     if (!pendingByDate[dateKey]) pendingByDate[dateKey] = [];
     pendingByDate[dateKey].push(task);
@@ -354,7 +373,7 @@ const completedEntries = Object.values(completedByEntry);
               {completedTasks.length}
             </span>
           </button>
-
+          
         </aside>
 
         {/* Main Content */}
@@ -423,44 +442,43 @@ const completedEntries = Object.values(completedByEntry);
                                       <h4 className="text-[13px] font-semibold truncate" style={{ color: "var(--text)" }}>{entryLabel}</h4>
                                     </div>
                                   </div>
-                                 {!!task.entry.Timestamp && (
-                                   <div className="text-[10px] mb-1" style={{ color: "var(--text-faint)" }}>
-                                     🕐 Submitted: {formatDate(String(task.entry.Timestamp))}
-                                   </div>
-                                 )}
-                                 <div className="text-[11px] flex flex-wrap gap-1.5" style={{ color: "var(--text-muted)" }}>
-  <span>{STEP_NAMES[task.stepNum]}</span>
-  {assignedSteps.includes(task.stepNum) ? (
-    <span className="font-semibold" style={{ color: "var(--primary)" }}>• Assigned to you</span>
-  ) : (
-    <span className="font-semibold" style={{ color: "var(--text-faint)" }}>• View Only</span>
-  )}
-</div>
+                                  {!!task.entry.Timestamp && (
+                                    <div className="text-[10px] mb-1" style={{ color: "var(--text-faint)" }}>
+                                      🕐 Submitted: {formatDate(String(task.entry.Timestamp))}
+                                    </div>
+                                  )}
+                                  <div className="text-[11px] flex flex-wrap gap-1.5" style={{ color: "var(--text-muted)" }}>
+                                    <span>{STEP_NAMES[task.stepNum]}</span>
+                                    {assignedSteps.includes(task.stepNum) ? (
+                                      <span className="font-semibold" style={{ color: "var(--primary)" }}>• Assigned to you</span>
+                                    ) : (
+                                      <span className="font-semibold" style={{ color: "var(--text-faint)" }}>• View Only</span>
+                                    )}
+                                  </div>
 
                                   {(typeof task.entry.Challan_Number === "string" ||
-  typeof task.entry.Challan_Number === "number") && (
-  <div
-    className="text-[10px] mt-1 font-semibold"
-    style={{ color: "var(--primary)" }}
-  >
-    Challan: {String(task.entry.Challan_Number)}
-  </div>
-)}
+                                    typeof task.entry.Challan_Number === "number") && (
+                                    <div
+                                      className="text-[10px] mt-1 font-semibold"
+                                      style={{ color: "var(--primary)" }}
+                                    >
+                                      Challan: {String(task.entry.Challan_Number)}
+                                    </div>
+                                  )}
                                   {assignedSteps.includes(task.stepNum) && (
-  <div className="flex justify-end mt-2.5">
-    <button
-      onClick={(e) => {
-        e.stopPropagation();
-        setShowStepSubmit({ entryId: String(task.entry.Entry_ID), stepNum: task.stepNum, entry: task.entry });
-      }}
-      className="px-3 py-1.5 rounded-md text-[11px] font-semibold text-white cursor-pointer"
-      style={{ background: "var(--success)" }}
-    >
-      Submit
-    </button>
-  </div>
-)}
-
+                                    <div className="flex justify-end mt-2.5">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setShowStepSubmit({ entryId: String(task.entry.Entry_ID), stepNum: task.stepNum, entry: task.entry });
+                                        }}
+                                        className="px-3 py-1.5 rounded-md text-[11px] font-semibold text-white cursor-pointer"
+                                        style={{ background: "var(--success)" }}
+                                      >
+                                        Submit
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
@@ -474,84 +492,216 @@ const completedEntries = Object.values(completedByEntry);
             )}
 
             {currentSection === "completed" && (
-  <div>
-    <div className="flex items-center justify-between mb-5">
-      <h3 className="text-base font-bold flex items-center gap-2" style={{ color: "var(--text)" }}>
-        Completed Entries
-        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full text-white" style={{ background: "var(--success)" }}>
-          {completedEntries.length}
-        </span>
-      </h3>
-    </div>
-
-    {completedEntries.length === 0 ? (
-      <div className="text-center py-12" style={{ color: "var(--text-muted)" }}>
-        <h3 className="text-base font-bold mb-1" style={{ color: "var(--text)" }}>No Completed Entries</h3>
-        <p className="text-xs">Completed entries will appear here.</p>
-      </div>
-    ) : (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {completedEntries.map((group, idx) => {
-const entryLabel = String(group.entry.Company_Name || "") + " · " + String(group.entry.Name_of_Enquirer || "");
-          const latestDate = group.steps[group.steps.length - 1]?.actualDate;
-          const formTimestamp = group.entry.Timestamp ? String(group.entry.Timestamp) : "";
-          return (
-            <div
-              key={idx}
-              onClick={() => setShowTaskDetail({ entryId: String(group.entry.Entry_ID), stepNum: group.steps[0].stepNum })}
-              className="p-4 rounded-xl cursor-pointer transition-all hover:shadow-md"
-              style={{ background: "var(--surface)", border: "1px solid var(--border)", borderLeft: "4px solid var(--success)" }}
-            >
-              <div className="flex items-center gap-2.5 mb-3">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: "var(--success)" }}>✓</div>
-                <div className="flex-1 min-w-0">
-                  <h4 className="text-[13px] font-bold truncate" style={{ color: "var(--text)" }}>{entryLabel}</h4>
-                  {(typeof group.entry.Challan_Number === "string" ||
-  typeof group.entry.Challan_Number === "number") && (
-  <span
-    className="text-[10px] font-bold"
-    style={{ color: "var(--primary)" }}
-  >
-    Challan: {String(group.entry.Challan_Number)}
-  </span>
-)}
+              <div>
+                <div className="flex items-center justify-between mb-5">
+                  <h3 className="text-base font-bold flex items-center gap-2" style={{ color: "var(--text)" }}>
+                    Completed Entries
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full text-white" style={{ background: "var(--success)" }}>
+                      {completedEntries.length}
+                    </span>
+                  </h3>
                 </div>
-              </div>
-              
-              {/* Show completed steps as badges */}
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {group.steps.map((step) => (
-                  <span key={step.stepNum} className="text-[9px] font-bold px-2 py-0.5 rounded" style={{ background: "rgba(5,150,105,0.08)", color: "var(--success)" }}>
-                    {step.stepNum}. {STEP_NAMES[step.stepNum]}
-                  </span>
-                ))}
-              </div>
 
-              {/* Form submission timestamp */}
-              {formTimestamp && (
-                <div className="text-[10px] mb-1" style={{ color: "var(--text-faint)" }}>
-                  🕐 Submitted: {formatDate(formTimestamp)}
+                {completedEntries.length === 0 ? (
+                  <div className="text-center py-12" style={{ color: "var(--text-muted)" }}>
+                    <h3 className="text-base font-bold mb-1" style={{ color: "var(--text)" }}>No Completed Entries</h3>
+                    <p className="text-xs">Completed entries will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {completedEntries.map((group, idx) => {
+                      const entryLabel = String(group.entry.Company_Name || "") + " · " + String(group.entry.Name_of_Enquirer || "");
+                      const latestDate = group.steps[group.steps.length - 1]?.actualDate;
+                      const formTimestamp = group.entry.Timestamp ? String(group.entry.Timestamp) : "";
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => setShowTaskDetail({ entryId: String(group.entry.Entry_ID), stepNum: group.steps[0].stepNum })}
+                          className="p-4 rounded-xl cursor-pointer transition-all hover:shadow-md"
+                          style={{ background: "var(--surface)", border: "1px solid var(--border)", borderLeft: "4px solid var(--success)" }}
+                        >
+                          <div className="flex items-center gap-2.5 mb-3">
+                            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: "var(--success)" }}>✓</div>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-[13px] font-bold truncate" style={{ color: "var(--text)" }}>{entryLabel}</h4>
+                              {(typeof group.entry.Challan_Number === "string" ||
+                                typeof group.entry.Challan_Number === "number") && (
+                                <span
+                                  className="text-[10px] font-bold"
+                                  style={{ color: "var(--primary)" }}
+                                >
+                                  Challan: {String(group.entry.Challan_Number)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          
+                          <div className="flex flex-wrap gap-1.5 mb-2">
+                            {group.steps.map((step) => (
+                              <span key={step.stepNum} className="text-[9px] font-bold px-2 py-0.5 rounded" style={{ background: "rgba(5,150,105,0.08)", color: "var(--success)" }}>
+                                {step.stepNum}. {STEP_NAMES[step.stepNum]}
+                              </span>
+                            ))}
+                          </div>
+
+                          {formTimestamp && (
+                            <div className="text-[10px] mb-1" style={{ color: "var(--text-faint)" }}>
+                              🕐 Submitted: {formatDate(formTimestamp)}
+                            </div>
+                          )}
+
+                          {latestDate && (
+                            <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                              Last completed: {formatDate(latestDate)}
+                            </div>
+                          )}
+
+                          <div className="text-[10px] mt-1" style={{ color: "var(--text-faint)" }}>
+                            {group.steps.length} step(s) completed
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {currentSection === "all" && (
+              <div>
+                <div className="flex items-center justify-between mb-5">
+                  <h3 className="text-base font-bold flex items-center gap-2" style={{ color: "var(--text)" }}>
+                    All Entries
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full text-white" style={{ background: "#6366f1" }}>
+                      {entries.length}
+                    </span>
+                  </h3>
                 </div>
-              )}
 
-              {/* Last completed date */}
-              {latestDate && (
-                <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                  Last completed: {formatDate(latestDate)}
-                </div>
-              )}
+                {entries.length === 0 ? (
+                  <div className="text-center py-12" style={{ color: "var(--text-muted)" }}>
+                    <h3 className="text-base font-bold mb-1" style={{ color: "var(--text)" }}>No Entries</h3>
+                    <p className="text-xs">No entries found in the system.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {entries.map((entry, idx) => {
+                      const entryLabel = `${String(entry.Entry_ID || "")} - ${String(entry.Company_Name || "")} · ${String(entry.Name_of_Enquirer || "")}`;
+                      const currentStep = Number(entry.Current_Step) || 1;
+                      const isCompleted = entry.Is_Completed === true || entry.Is_Completed === "true" || entry.Is_Completed === "TRUE";
+                      const isStopped = entry.Is_Stopped === true || entry.Is_Stopped === "true" || entry.Is_Stopped === "TRUE";
 
-              <div className="text-[10px] mt-1" style={{ color: "var(--text-faint)" }}>
-                {group.steps.length} step(s) completed
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => setShowTaskDetail({ entryId: String(entry.Entry_ID), stepNum: currentStep })}
+                          className="p-4 rounded-xl cursor-pointer transition-all hover:shadow-md"
+                          style={{
+                            background: "var(--surface)",
+                            border: "1px solid var(--border)",
+                            borderLeft: `4px solid ${isCompleted ? "var(--success)" : isStopped ? "var(--danger)" : "var(--primary)"}`,
+                          }}
+                        >
+                          <div className="flex items-center gap-3 mb-2">
+                            <div
+                              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                              style={{ background: isCompleted ? "var(--success)" : isStopped ? "var(--danger)" : "var(--primary)" }}
+                            >
+                              {isCompleted ? "✓" : isStopped ? "✕" : currentStep}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-[13px] font-bold truncate" style={{ color: "var(--text)" }}>{entryLabel}</h4>
+                              <div className="flex flex-wrap gap-1.5 mt-1">
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{
+                                  background: isCompleted ? "rgba(5,150,105,0.08)" : isStopped ? "rgba(220,38,38,0.08)" : "rgba(37,99,235,0.06)",
+                                  color: isCompleted ? "var(--success)" : isStopped ? "var(--danger)" : "var(--primary)",
+                                }}>
+                                  {isCompleted ? "Completed" : isStopped ? "Stopped" : `Step ${currentStep}: ${STEP_NAMES[currentStep] || ""}`}
+                                </span>
+                                {(typeof entry.Challan_Number === "string" || typeof entry.Challan_Number === "number") && String(entry.Challan_Number).trim() && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: "var(--primary-bg)", color: "var(--primary)" }}>
+                                    Challan: {String(entry.Challan_Number)}
+                                  </span>
+                                )}
+                                {!!entry.Type_of_Enquiry && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "var(--surface-2)", color: "var(--text-muted)" }}>
+                                    {String(entry.Type_of_Enquiry)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Entry Details Grid */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1 mt-3 pl-11">
+                            {!!entry.Location && (
+                              <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                                <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Location:</span> {String(entry.Location)}
+                              </div>
+                            )}
+                            {!!entry.Mobile_Number && (
+                              <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                                <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Mobile:</span> {String(entry.Mobile_Number)}
+                              </div>
+                            )}
+                            {!!entry.Email_Id && (
+                              <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                                <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Email:</span> {String(entry.Email_Id)}
+                              </div>
+                            )}
+                            {!!entry.Sales_Person_Accountable && (
+                              <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                                <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Sales Person:</span> {String(entry.Sales_Person_Accountable)}
+                              </div>
+                            )}
+                            {!!entry.Sales_Close_Date && (
+                              <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                                <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Close Date:</span> {formatDateOnly(String(entry.Sales_Close_Date))}
+                              </div>
+                            )}
+                            {!!entry.Remark && (
+                              <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                                <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Remark:</span> {String(entry.Remark)}
+                              </div>
+                            )}
+                            {!!entry.Submitted_By && (
+                              <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                                <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Submitted By:</span> {String(entry.Submitted_By)}
+                              </div>
+                            )}
+                            {!!entry.Timestamp && (
+                              <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                                <span className="font-semibold" style={{ color: "var(--text-secondary)" }}>Submitted:</span> {formatDate(String(entry.Timestamp))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Step Progress Summary */}
+                          <div className="flex flex-wrap gap-1 mt-3 pl-11">
+                            {Array.from({ length: 10 }, (_, i) => i + 1).map((s) => {
+                              const stepStatus = entry[`Step_${s}_Status`] as string;
+                              if (!stepStatus || stepStatus === "Locked" || stepStatus === "Skipped") return null;
+                              return (
+                                <span
+                                  key={s}
+                                  className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+                                  style={{
+                                    background: stepStatus === "Completed" ? "rgba(5,150,105,0.08)" : stepStatus === "Pending" ? "rgba(217,119,6,0.08)" : "rgba(220,38,38,0.08)",
+                                    color: stepStatus === "Completed" ? "var(--success)" : stepStatus === "Pending" ? "#b45309" : "var(--danger)",
+                                  }}
+                                >
+                                  {s}. {STEP_NAMES[s]} ({stepStatus})
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            </div>
-          );
-        })}
-      </div>
-    )}
-  </div>
-)}
-
+            )}
 
           </div>
         </main>
@@ -568,7 +718,10 @@ const entryLabel = String(group.entry.Company_Name || "") + " · " + String(grou
             <span>✅</span>
             <span>Completed</span>
           </button>
-
+          <button onClick={() => setCurrentSection("all")} className={cn("flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-md text-[10px] font-semibold cursor-pointer", currentSection === "all" ? "text-white" : "")} style={{ color: currentSection === "all" ? "#fff" : "var(--sidebar-text)", background: currentSection === "all" ? "var(--sidebar-active-bg)" : "transparent" }}>
+            <span>📋</span>
+            <span>All</span>
+          </button>
         </div>
       </div>
 
@@ -729,13 +882,12 @@ function TaskDetailModal({
     if (reqStr) requirements = JSON.parse(reqStr);
   } catch { /* ignore */ }
 
-  // Parse PO form data - try JSON first, then fallback to individual columns
+  // Parse PO form data
   let poData: { poNumber?: string; poLocation?: string; qNo?: string; deliveryDate?: string; payTerms?: number } | null = null;
   try {
     const poStr = entry.Step_4_PO_JSON as string;
     if (poStr) poData = JSON.parse(poStr);
   } catch { /* ignore */ }
-  // Fallback: construct from individual columns if JSON not available
   if (!poData) {
     const poNumber = entry.Step_4_PO_Number as string;
     const poLocation = entry.Step_4_PO_Location as string;
@@ -753,13 +905,12 @@ function TaskDetailModal({
     }
   }
 
-  // Parse Dispatch form data - try JSON first, then fallback to individual columns
+  // Parse Dispatch form data
   let dispatchData: { dispatchMode?: string; dispatchName?: string; dispatchMobNo?: string; invoiceChallanNo?: string; lrNo?: string; gatePassNo?: string } | null = null;
   try {
     const dispStr = entry.Step_8_Dispatch_JSON as string;
     if (dispStr) dispatchData = JSON.parse(dispStr);
   } catch { /* ignore */ }
-  // Fallback: construct from individual columns if JSON not available
   if (!dispatchData) {
     const dispatchMode = entry.Step_8_Dispatch_Mode as string;
     const dispatchName = entry.Step_8_Dispatch_Name as string;
@@ -779,9 +930,6 @@ function TaskDetailModal({
     }
   }
 
-  // Determine which steps to show:
-  // - If canViewAllSteps is true: show ALL steps (user can view all + edit their assigned ones)
-  // - If canViewAllSteps is false: show ONLY the user's assigned steps
   const stepsToShow = canViewAllSteps
     ? Array.from({ length: 10 }, (_, i) => i + 1)
     : assignedSteps.sort((a, b) => a - b);
@@ -792,16 +940,16 @@ function TaskDetailModal({
         <div>
           <h2 className="text-base font-bold" style={{ color: "var(--text)" }}>{entryLabel}</h2>
           {typeof entry.Challan_Number === "string" && entry.Challan_Number && (
-  <span
-    className="text-[11px] font-bold px-2 py-0.5 rounded mt-1 inline-block"
-    style={{
-      background: "var(--primary-bg)",
-      color: "var(--primary)",
-    }}
-  >
-    Challan: {entry.Challan_Number}
-  </span>
-)}
+            <span
+              className="text-[11px] font-bold px-2 py-0.5 rounded mt-1 inline-block"
+              style={{
+                background: "var(--primary-bg)",
+                color: "var(--primary)",
+              }}
+            >
+              Challan: {entry.Challan_Number}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {isSubmitter && (
@@ -844,11 +992,6 @@ function TaskDetailModal({
         {!!entry.Submitted_By && <InfoRow label="Submitted By" value={String(entry.Submitted_By)} />}
       </div>
 
-      {/* PO Form Details in History */}
-      
-
-      {/* Dispatch Form Details in History */}
-      
       {/* Step Progress */}
       <h3 className="text-sm font-bold mb-4" style={{ color: "var(--text)" }}>
         {canViewAllSteps ? "Step Progress (View + Edit Access)" : "Step Progress (Your Authorized Steps)"}
@@ -912,16 +1055,13 @@ function TaskDetailModal({
                         <button
                           type="button"
                           onClick={() => {
-  let cleanUrl = stepAttachment;
-  // Handle combined format: "Invoice XXX: URL [timestamp]"
-  // Support both Cloudinary and Google Drive URLs
-  const urlMatch = stepAttachment.match(/https?:\/\/(res\.cloudinary\.com|drive\.google\.com|lh3\.googleusercontent\.com)[^\s\[\]]+/);
-  if (urlMatch) {
-    cleanUrl = urlMatch[0];
-  }
-  onViewAttachment(cleanUrl);
-}}
-
+                            let cleanUrl = stepAttachment;
+                            const urlMatch = stepAttachment.match(/https?:\/\/(res\.cloudinary\.com|drive\.google\.com|lh3\.googleusercontent\.com)[^\s\[\]]+/);
+                            if (urlMatch) {
+                              cleanUrl = urlMatch[0];
+                            }
+                            onViewAttachment(cleanUrl);
+                          }}
                           className="mt-1 text-[10px] px-2 py-1 rounded cursor-pointer font-semibold inline-flex items-center gap-1"
                           style={{ color: "var(--primary)", background: "var(--primary-bg)", border: "1px solid var(--primary)" }}
                         >
@@ -943,7 +1083,7 @@ function TaskDetailModal({
                         </div>
                       )}
 
-                      {/* Step 7: Show Invoice & Attachments with timestamps */}
+                      {/* Step 7: Show Invoice & Attachments */}
                       {s === 7 && (() => {
                         let invoices: { batch: number; date: string; submittedBy: string; items: { itemName: string; quantityReceived: number; totalQuantity: number; attachment: string; uploadedAt?: string }[] }[] = [];
                         try {
@@ -969,15 +1109,13 @@ function TaskDetailModal({
                                       <button
                                         type="button"
                                         onClick={() => {
-  let cleanUrl = item.attachment;
-  // Support both Cloudinary and Google Drive URLs
-  const urlMatch = item.attachment.match(/https?:\/\/(res\.cloudinary\.com|drive\.google\.com|lh3\.googleusercontent\.com)[^\s\[\]]+/);
-  if (urlMatch) {
-    cleanUrl = urlMatch[0];
-  }
-  onViewAttachment(cleanUrl);
-}}
-
+                                          let cleanUrl = item.attachment;
+                                          const urlMatch = item.attachment.match(/https?:\/\/(res\.cloudinary\.com|drive\.google\.com|lh3\.googleusercontent\.com)[^\s\[\]]+/);
+                                          if (urlMatch) {
+                                            cleanUrl = urlMatch[0];
+                                          }
+                                          onViewAttachment(cleanUrl);
+                                        }}
                                         className="text-[9px] px-1.5 py-0.5 rounded cursor-pointer font-semibold"
                                         style={{ color: "var(--primary)", background: "var(--primary-bg)", border: "1px solid var(--primary)" }}
                                       >
