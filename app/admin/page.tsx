@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { getAdminData, addUser, bulkAddUsers, updateUserAccess, addSalesPerson, removeSalesPerson, generateUserLink } from "../lib/api";
 import { STEP_NAMES } from "../lib/types";
+import type { SyncState, SyncNotification } from "../lib/types";
+import { createSyncManager, DataSyncManager } from "../lib/dataSync";
+import { formatRelativeTime } from "../lib/utils";
 
 function AdminDashboardContent() {
   const searchParams = useSearchParams();
@@ -14,7 +17,7 @@ function AdminDashboardContent() {
   const [loading, setLoading] = useState(false);
   const [adminData, setAdminData] = useState<Record<string, unknown> | null>(null);
   const [activeTab, setActiveTab] = useState<"users" | "sales" | "entries">("users");
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserName, setNewUserName] = useState("");
@@ -36,10 +39,63 @@ function AdminDashboardContent() {
   const [removingSalesPerson, setRemovingSalesPerson] = useState<string | null>(null);
   const [generatingLink, setGeneratingLink] = useState<string | null>(null);
 
-  const showToast = (message: string, type: "success" | "error") => {
+  // Real-time sync state
+  const [syncState, setSyncState] = useState<SyncState>({
+    lastSyncTime: null,
+    isSyncing: false,
+    syncError: null,
+    dataHash: null,
+  });
+  const [syncNotifications, setSyncNotifications] = useState<SyncNotification[]>([]);
+  const syncManagerRef = useRef<DataSyncManager | null>(null);
+  const [, setTick] = useState(0); // Force re-render for relative time updates
+
+  const showToast = (message: string, type: "success" | "error" | "info") => {
     setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), 4000);
   };
+
+  // Update relative time display every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Initialize real-time sync after authentication
+  useEffect(() => {
+    if (!authenticated || !email) return;
+
+    const manager = createSyncManager({
+      fetchFn: () => getAdminData(email) as Promise<Record<string, unknown>>,
+      onData: (data) => {
+        setAdminData(data);
+      },
+      onNotification: (notification) => {
+        setSyncNotifications((prev) => [notification, ...prev].slice(0, 10));
+        showToast(`🔄 ${notification.message}`, "info");
+      },
+      onError: (error) => {
+        console.error("Sync error:", error);
+      },
+      onStateChange: (state) => {
+        setSyncState(state);
+      },
+      config: {
+        pollInterval: 5000, // 5 seconds
+        showNotifications: true,
+        maxNotifications: 10,
+        enabled: true,
+      },
+    });
+
+    syncManagerRef.current = manager;
+    manager.start();
+
+    return () => {
+      manager.destroy();
+      syncManagerRef.current = null;
+    };
+  }, [authenticated, email]);
 
   const loadAdminData = useCallback(async (adminEmail: string) => {
     if (!adminEmail) return;
@@ -71,6 +127,13 @@ function AdminDashboardContent() {
     setLoading(false);
   };
 
+  const handleManualRefresh = async () => {
+    if (syncManagerRef.current) {
+      await syncManagerRef.current.forceSync();
+      showToast("Data refreshed from Google Sheet", "success");
+    }
+  };
+
   const handleAddUser = async () => {
     if (!newUserEmail.trim() || !newUserName.trim()) {
       showToast("Email and Name are required", "error");
@@ -84,7 +147,7 @@ function AdminDashboardContent() {
         setNewUserEmail("");
         setNewUserName("");
         setNewUserMobile("");
-        await loadAdminData(email);
+        syncManagerRef.current?.forceSync();
       } else {
         showToast(result.message || "Error", "error");
       }
@@ -119,7 +182,7 @@ function AdminDashboardContent() {
         if (result.success) {
           showToast(String(result.count) + " users added!", "success");
           setBulkFile(null);
-          await loadAdminData(email);
+          syncManagerRef.current?.forceSync();
         } else {
           showToast(result.message || "Error", "error");
         }
@@ -144,7 +207,7 @@ function AdminDashboardContent() {
       if (result.success) {
         showToast("Access updated!", "success");
         setEditingUser(null);
-        await loadAdminData(email);
+        syncManagerRef.current?.forceSync();
       } else {
         showToast(result.message || "Error", "error");
       }
@@ -163,7 +226,7 @@ function AdminDashboardContent() {
       if (result.success) {
         showToast("Sales person added!", "success");
         setNewSalesPerson("");
-        await loadAdminData(email);
+        syncManagerRef.current?.forceSync();
       } else {
         showToast(result.message || "Error", "error");
       }
@@ -180,7 +243,7 @@ function AdminDashboardContent() {
       const result = await removeSalesPerson(email, name);
       if (result.success) {
         showToast("Removed!", "success");
-        await loadAdminData(email);
+        syncManagerRef.current?.forceSync();
       } else {
         showToast(result.message || "Error", "error");
       }
@@ -260,7 +323,7 @@ function AdminDashboardContent() {
           )}
         </div>
         {toast && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-2.5 rounded-lg text-xs font-semibold text-white z-[10000] shadow-lg" style={{ background: toast.type === "success" ? "var(--success)" : "var(--danger)" }}>
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-2.5 rounded-lg text-xs font-semibold text-white z-[10000] shadow-lg" style={{ background: toast.type === "success" ? "var(--success)" : toast.type === "info" ? "var(--primary)" : "var(--danger)" }}>
             {toast.message}
           </div>
         )}
@@ -280,7 +343,36 @@ function AdminDashboardContent() {
           <h1 className="text-sm font-bold" style={{ color: "var(--text)" }}>Admin Dashboard</h1>
           <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>Enquiry Capture O2D</p>
         </div>
-        <div className="ml-auto text-xs" style={{ color: "var(--text-muted)" }}>{email}</div>
+        <div className="ml-auto flex items-center gap-3">
+          {/* Real-time Sync Indicator */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+            <div className="flex items-center gap-1.5">
+              <div
+                className="w-2 h-2 rounded-full"
+                style={{
+                  background: syncState.syncError ? "var(--danger)" : syncState.isSyncing ? "var(--warning)" : "var(--success)",
+                  animation: syncState.isSyncing ? "pulse 1s infinite" : "none",
+                }}
+              />
+              <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                {syncState.isSyncing ? "Syncing..." : syncState.syncError ? "Error" : "Live"}
+              </span>
+            </div>
+            <span className="text-[9px]" style={{ color: "var(--text-faint)" }}>
+              {formatRelativeTime(syncState.lastSyncTime)}
+            </span>
+            <button
+              onClick={handleManualRefresh}
+              disabled={syncState.isSyncing}
+              className="w-5 h-5 rounded flex items-center justify-center text-[10px] cursor-pointer transition-all hover:opacity-70"
+              style={{ background: "var(--surface-3)", color: "var(--text-muted)" }}
+              title="Force refresh from Google Sheet"
+            >
+              🔄
+            </button>
+          </div>
+          <div className="text-xs" style={{ color: "var(--text-muted)" }}>{email}</div>
+        </div>
       </header>
 
       <div className="flex gap-1 px-6 pt-4" style={{ borderBottom: "1px solid var(--border)" }}>
@@ -315,8 +407,6 @@ function AdminDashboardContent() {
                 {addingUser ? "Adding..." : "+ Add User"}
               </button>
             </div>
-
-            
 
             <div className="p-5 rounded-xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
               <h3 className="text-sm font-bold mb-4" style={{ color: "var(--text)" }}>All Users ({users.length})</h3>
@@ -437,7 +527,14 @@ function AdminDashboardContent() {
 
         {activeTab === "entries" && (
           <div className="p-5 rounded-xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
-            <h3 className="text-sm font-bold mb-4" style={{ color: "var(--text)" }}>All Entries ({entries.length})</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold" style={{ color: "var(--text)" }}>All Entries ({entries.length})</h3>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] px-2 py-1 rounded" style={{ background: "var(--primary-bg)", color: "var(--primary)" }}>
+                  Auto-syncing every 5s from Google Sheet
+                </span>
+              </div>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
@@ -493,14 +590,12 @@ function AdminDashboardContent() {
             <h2 className="text-base font-bold mb-1" style={{ color: "var(--text)" }}>Edit Access - {String(editingUser.name)}</h2>
             <p className="text-xs mb-4" style={{ color: "var(--text-muted)" }}>{String(editingUser.email)}</p>
 
-            {/* Info box explaining the access system */}
             <div className="mb-4 p-3 rounded-lg" style={{ background: "rgba(37,99,235,0.04)", border: "1px solid rgba(37,99,235,0.12)" }}>
               <p className="text-[11px]" style={{ color: "var(--primary)" }}>
                 <strong>How it works:</strong> Select the steps this user is authorized to edit/submit. By default, users can ONLY see their authorized steps. Enable &quot;View + Edit&quot; below to let them see ALL steps (read-only for non-authorized ones) while still only being able to edit their authorized steps.
               </p>
             </div>
 
-            {/* View + Edit Toggle */}
             <label className="flex items-center gap-3 p-3 rounded-lg cursor-pointer mb-4" style={{ background: editCanViewAllSteps ? "rgba(37,99,235,0.06)" : "var(--surface-2)", border: "1px solid " + (editCanViewAllSteps ? "var(--primary)" : "var(--border)") }}>
               <input type="checkbox" checked={editCanViewAllSteps} onChange={(e) => setEditCanViewAllSteps(e.target.checked)} className="w-4 h-4" style={{ accentColor: "var(--primary)" }} />
               <div>
@@ -523,7 +618,6 @@ function AdminDashboardContent() {
                 </button>
               </div>
 
-              {/* Step list with names */}
               <div className="space-y-1.5">
                 {Array.from({ length: 10 }, (_, i) => i + 1).map((s) => {
                   const isSelected = editSteps.includes(s);
@@ -615,8 +709,25 @@ function AdminDashboardContent() {
         </div>
       )}
 
+      {/* Sync Notifications Panel (bottom-right) */}
+      {syncNotifications.length > 0 && (
+        <div className="fixed bottom-16 right-6 z-[900] w-72 max-h-48 overflow-y-auto rounded-lg shadow-lg" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+          <div className="flex items-center justify-between px-3 py-2" style={{ borderBottom: "1px solid var(--border)" }}>
+            <span className="text-[10px] font-bold" style={{ color: "var(--text-muted)" }}>Recent Changes</span>
+            <button onClick={() => setSyncNotifications([])} className="text-[10px] cursor-pointer" style={{ color: "var(--text-faint)" }}>Clear</button>
+          </div>
+          <div className="p-2 space-y-1">
+            {syncNotifications.slice(0, 5).map((n) => (
+              <div key={n.id} className="text-[10px] p-1.5 rounded" style={{ background: "var(--surface-2)", color: "var(--text-secondary)" }}>
+                🔄 {n.message}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-2.5 rounded-lg text-xs font-semibold text-white z-[10000] shadow-lg" style={{ background: toast.type === "success" ? "var(--success)" : "var(--danger)" }}>
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-2.5 rounded-lg text-xs font-semibold text-white z-[10000] shadow-lg" style={{ background: toast.type === "success" ? "var(--success)" : toast.type === "info" ? "var(--primary)" : "var(--danger)" }}>
           {toast.message}
         </div>
       )}
