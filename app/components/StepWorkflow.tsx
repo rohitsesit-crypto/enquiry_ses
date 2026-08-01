@@ -300,7 +300,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
         }
         if (!poData) return null;
         return (
-          <div className="mb-4 p-3 rounded-lg" style={{ background: "rgba(37,99,235,0.04)", border: "1px solid rgba(37,99,235,0.12)" }}>
+          <div className="mb-4" >
            
           </div>
         );
@@ -334,7 +334,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
         }
         if (!dispatchHistoryData) return null;
         return (
-          <div className="mb-4 p-3 rounded-lg" style={{ background: "rgba(5,150,105,0.04)", border: "1px solid rgba(5,150,105,0.12)" }}>
+          <div className="mb-4">
             
           </div>
         );
