@@ -553,9 +553,9 @@ function AdminDashboardContent() {
                     <tr key={idx} style={{ borderBottom: "1px solid var(--border-light)" }}>
                       <td className="py-2 px-2 font-mono" style={{ color: "var(--primary)" }}>{String(entry.Entry_ID)}</td>
                       <td className="py-2 px-2">
-                        {entry.Challan_Number ? (
+                        {entry.Step_8_Dispatch_GatePassNo ? (
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: "var(--primary-bg)", color: "var(--primary)" }}>
-                            {String(entry.Challan_Number)}
+                            {String(entry.Step_8_Dispatch_GatePassNo)}
                           </span>
                         ) : (
                           <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>-</span>
