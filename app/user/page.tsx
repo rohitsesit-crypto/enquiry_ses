@@ -29,6 +29,7 @@ function UserDashboardContent() {
   const [refreshing, setRefreshing] = useState(false);
   const [submittingStep, setSubmittingStep] = useState(false);
   const [editingEntry, setEditingEntry] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -241,10 +242,45 @@ entries.forEach((entry) => {
 });
 
 
+  // Search filter function
+  const filterBySearch = (task: { entry: Record<string, unknown>; stepNum: number }) => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase().trim();
+    const entryId = String(task.entry.Entry_ID || "").toLowerCase();
+    const companyName = String(task.entry.Company_Name || "").toLowerCase();
+    const enquirerName = String(task.entry.Name_of_Enquirer || "").toLowerCase();
+    const challanNumber = String(task.entry.Challan_Number || "").toLowerCase();
+    const location = String(task.entry.Location || "").toLowerCase();
+    const salesPerson = String(task.entry.Sales_Person_Accountable || "").toLowerCase();
+    const mobile = String(task.entry.Mobile_Number || "").toLowerCase();
+    const emailId = String(task.entry.Email_Id || "").toLowerCase();
+    const typeOfEnquiry = String(task.entry.Type_of_Enquiry || "").toLowerCase();
+    const remark = String(task.entry.Remark || "").toLowerCase();
+    const stepName = STEP_NAMES[task.stepNum]?.toLowerCase() || "";
+
+    return (
+      entryId.includes(query) ||
+      companyName.includes(query) ||
+      enquirerName.includes(query) ||
+      challanNumber.includes(query) ||
+      location.includes(query) ||
+      salesPerson.includes(query) ||
+      mobile.includes(query) ||
+      emailId.includes(query) ||
+      typeOfEnquiry.includes(query) ||
+      remark.includes(query) ||
+      stepName.includes(query)
+    );
+  };
+
+  // Apply search filter
+  const filteredPendingTasks = pendingTasks.filter(filterBySearch);
+  const filteredCompletedTasks = completedTasks.filter(filterBySearch);
+
   // Group completed tasks by Entry_ID
   const completedByEntry: Record<string, { entry: Record<string, unknown>; steps: { stepNum: number; actualDate: string | null }[] }> = {};
 
-  completedTasks.forEach((task) => {
+  filteredCompletedTasks.forEach((task) => {
     const entryId = String(task.entry.Entry_ID);
     if (!completedByEntry[entryId]) {
       completedByEntry[entryId] = { entry: task.entry, steps: [] };
@@ -258,18 +294,43 @@ entries.forEach((entry) => {
 
   const completedEntries = Object.values(completedByEntry);
 
+  // Helper to get relative date label
+  const getDateLabel = (dateKey: string): string => {
+    if (dateKey === "No Date") return "No Date";
+    const dateObj = parseDateString(dateKey);
+    if (isNaN(dateObj.getTime())) return dateKey;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const target = new Date(dateObj);
+    target.setHours(0, 0, 0, 0);
+
+    const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return "Today";
+    if (diffDays === 1) return "Tomorrow";
+    if (diffDays === -1) return "Yesterday";
+    if (diffDays === 2) return "Day After Tomorrow";
+    if (diffDays === -2) return "2 Days Ago";
+    if (diffDays > 2 && diffDays <= 7) return `In ${diffDays} Days`;
+    if (diffDays < -2 && diffDays >= -7) return `${Math.abs(diffDays)} Days Ago`;
+
+    return formatDateOnly(dateObj);
+  };
+
   // Group pending tasks by date
-  const pendingByDate: Record<string, typeof pendingTasks> = {};
-  pendingTasks.forEach((task) => {
+  const pendingByDate: Record<string, typeof filteredPendingTasks> = {};
+  filteredPendingTasks.forEach((task) => {
     const dateKey = task.plannedDate ? formatStorageDate(task.plannedDate) || "No Date" : "No Date";
     if (!pendingByDate[dateKey]) pendingByDate[dateKey] = [];
     pendingByDate[dateKey].push(task);
   });
 
+  // Sort: Latest first (future dates first → today → yesterday → older), No Date at end
   const sortedDateKeys = Object.keys(pendingByDate).sort((a, b) => {
     if (a === "No Date") return 1;
     if (b === "No Date") return -1;
-    return parseDateString(a).getTime() - parseDateString(b).getTime();
+    return parseDateString(b).getTime() - parseDateString(a).getTime();
   });
 
   return (
@@ -379,18 +440,53 @@ entries.forEach((entry) => {
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto" style={{ background: "var(--bg)" }}>
           <div className="p-6 max-w-[1400px]">
+            {/* Search Bar */}
+            <div className="mb-5">
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-base">🔍</span>
+                <input
+                  type="text"
+                  placeholder="Search by company, enquirer, entry ID, challan, location, step..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-10 py-2.5 rounded-lg text-sm outline-none transition-all"
+                  style={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text)",
+                  }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = "var(--primary)"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(37,99,235,0.1)"; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.boxShadow = "none"; }}
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center text-xs cursor-pointer"
+                    style={{ background: "var(--surface-2)", color: "var(--text-muted)" }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              {searchQuery && (
+                <p className="text-[11px] mt-1.5 ml-1" style={{ color: "var(--text-muted)" }}>
+                  Showing results for &quot;<strong>{searchQuery}</strong>&quot; — {filteredPendingTasks.length} pending, {filteredCompletedTasks.length} completed
+                </p>
+              )}
+            </div>
+
             {currentSection === "pending" && (
               <div>
                 <div className="flex items-center justify-between mb-5">
                   <h3 className="text-base font-bold flex items-center gap-2" style={{ color: "var(--text)" }}>
                     Pending Tasks
                     <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full text-white" style={{ background: "var(--primary)" }}>
-                      {pendingTasks.length}
+                      {filteredPendingTasks.length}
                     </span>
                   </h3>
                 </div>
 
-                {pendingTasks.length === 0 ? (
+                {filteredPendingTasks.length === 0 ? (
                   <div className="text-center py-12" style={{ color: "var(--text-muted)" }}>
                     <div className="text-4xl mb-3">🎉</div>
                     <h3 className="text-base font-bold mb-1" style={{ color: "var(--text)" }}>All Caught Up!</h3>
@@ -405,13 +501,18 @@ entries.forEach((entry) => {
                       const isOverdueDate = dateObj ? isOverdue(dateObj.toISOString()) : false;
 
                       return (
-                        <div key={dateKey} className="min-w-[320px] max-w-[380px] flex-1 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)", background: "var(--surface)" }}>
-                          <div className="px-4 py-3.5" style={{ borderBottom: `2px solid ${isOverdueDate ? "var(--danger)" : isTodayDate ? "var(--warning)" : "var(--primary)"}` }}>
+                        <div key={dateKey} className={cn("min-w-[320px] max-w-[380px] flex-1 rounded-xl overflow-hidden", isTodayDate && "ring-2 ring-amber-400 shadow-lg shadow-amber-100/50")} style={{ border: isTodayDate ? "1.5px solid #f59e0b" : "1px solid var(--border)", background: "var(--surface)" }}>
+                          <div className="px-4 py-3.5" style={{ borderBottom: `2px solid ${isOverdueDate ? "var(--danger)" : isTodayDate ? "var(--warning)" : "var(--primary)"}`, background: isTodayDate ? "rgba(245, 158, 11, 0.06)" : "transparent" }}>
                             <div className="flex items-center gap-2.5">
-                              <div className="text-lg">{isOverdueDate ? "🔴" : isTodayDate ? "🟡" : "📅"}</div>
+                              <div className="text-lg">{isOverdueDate ? "🔴" : isTodayDate ? "🟡" : dateObj && !isOverdue(dateObj.toISOString()) ? "🟢" : "📅"}</div>
                               <div className="flex-1">
                                 <h3 className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: "var(--text)" }}>
-                                  {dateObj ? formatDateOnly(dateObj) : "No Date"}
+                                  {getDateLabel(dateKey)}
+                                  {dateObj && dateKey !== "No Date" && (
+                                    <span className="text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>
+                                      ({formatDateOnly(dateObj)})
+                                    </span>
+                                  )}
                                   {isTodayDate && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-white uppercase">TODAY</span>}
                                   {isOverdueDate && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-600 text-white uppercase">OVERDUE</span>}
                                 </h3>
@@ -427,10 +528,10 @@ entries.forEach((entry) => {
                                 <div
                                   key={`${String(task.entry.Entry_ID)}-${task.stepNum}-${idx}`}
                                   onClick={() => setShowTaskDetail({ entryId: String(task.entry.Entry_ID), stepNum: task.stepNum })}
-                                  className="p-3 rounded-lg cursor-pointer transition-all hover:shadow-md"
+                                  className={cn("p-3 rounded-lg cursor-pointer transition-all hover:shadow-md", isTodayDate && "ring-1 ring-amber-300/60")}
                                   style={{
-                                    background: "var(--surface-2)",
-                                    border: "1px solid var(--border-light)",
+                                    background: isTodayDate ? "rgba(245, 158, 11, 0.04)" : "var(--surface-2)",
+                                    border: isTodayDate ? "1px solid rgba(245, 158, 11, 0.25)" : "1px solid var(--border-light)",
                                     borderLeft: `3px solid ${isOverdueDate ? "var(--danger)" : isTodayDate ? "var(--warning)" : "var(--primary)"}`,
                                   }}
                                 >
