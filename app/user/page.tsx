@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { getUserDashboardData, verifyUser, submitNewEntry, submitStep, updateEntry } from "../lib/api";
 import { STEP_NAMES } from "../lib/types";
@@ -30,6 +30,8 @@ function UserDashboardContent() {
   const [submittingStep, setSubmittingStep] = useState(false);
   const [editingEntry, setEditingEntry] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const todayColumnRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -81,6 +83,22 @@ function UserDashboardContent() {
     const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
   }, [verified, loadData]);
+
+  // Auto-scroll to today's column when data loads
+  useEffect(() => {
+    if (!dashboardData || currentSection !== "pending") return;
+    // Small delay to ensure DOM is rendered
+    const timeout = setTimeout(() => {
+      if (todayColumnRef.current && scrollContainerRef.current) {
+        const container = scrollContainerRef.current;
+        const todayEl = todayColumnRef.current;
+        // Scroll so that today's column is near the left of the container
+        const scrollLeft = todayEl.offsetLeft - container.offsetLeft - 16;
+        container.scrollTo({ left: scrollLeft, behavior: "smooth" });
+      }
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [dashboardData, currentSection]);
 
   useEffect(() => {
     const saved = localStorage.getItem("fms-theme");
@@ -493,7 +511,7 @@ entries.forEach((entry) => {
                     <p className="text-xs">No pending tasks for your assigned steps.</p>
                   </div>
                 ) : (
-                  <div className="flex gap-4 overflow-x-auto pb-4">
+                  <div ref={scrollContainerRef} className="flex gap-4 overflow-x-auto pb-4">
                     {sortedDateKeys.map((dateKey) => {
                       const tasks = pendingByDate[dateKey];
                       const dateObj = dateKey !== "No Date" ? parseDateString(dateKey) : null;
@@ -501,7 +519,7 @@ entries.forEach((entry) => {
                       const isOverdueDate = dateObj ? isOverdue(dateObj.toISOString()) : false;
 
                       return (
-                        <div key={dateKey} className={cn("min-w-[320px] max-w-[380px] flex-1 rounded-xl overflow-hidden", isTodayDate && "ring-2 ring-amber-400 shadow-lg shadow-amber-100/50")} style={{ border: isTodayDate ? "1.5px solid #f59e0b" : "1px solid var(--border)", background: "var(--surface)" }}>
+                        <div key={dateKey} ref={isTodayDate ? todayColumnRef : undefined} className={cn("min-w-[320px] max-w-[380px] flex-1 rounded-xl overflow-hidden", isTodayDate && "ring-2 ring-amber-400 shadow-lg shadow-amber-100/50")} style={{ border: isTodayDate ? "1.5px solid #f59e0b" : "1px solid var(--border)", background: "var(--surface)" }}>
                           <div className="px-4 py-3.5" style={{ borderBottom: `2px solid ${isOverdueDate ? "var(--danger)" : isTodayDate ? "var(--warning)" : "var(--primary)"}`, background: isTodayDate ? "rgba(245, 158, 11, 0.06)" : "transparent" }}>
                             <div className="flex items-center gap-2.5">
                               <div className="text-lg">{isOverdueDate ? "🔴" : isTodayDate ? "🟡" : dateObj && !isOverdue(dateObj.toISOString()) ? "🟢" : "📅"}</div>
