@@ -518,6 +518,42 @@ export function detectChanges(
   return { newItems, updatedItems, removedIds };
 }
 
+// ==================== HOLIDAY-AWARE DATE CALCULATION ====================
+
+/**
+ * Checks if a given date falls on a holiday or Sunday from the provided lists.
+ * @param date - The date to check
+ * @param holidays - Array of holiday date strings in DD-MM-YYYY format
+ * @param sundays - Array of Sunday date strings in DD-MM-YYYY format
+ */
+export function isHolidayOrSunday(date: Date, holidays: string[], sundays: string[]): boolean {
+  const dateStr = formatStorageDate(date); // DD-MM-YYYY
+  if (holidays.includes(dateStr)) return true;
+  if (sundays.includes(dateStr)) return true;
+  // Also check if the date itself is a Sunday (day of week === 0)
+  if (date.getDay() === 0) return true;
+  return false;
+}
+
+/**
+ * Gets the next working date by skipping holidays and Sundays.
+ * Starting from the given date, advances forward until a working day is found.
+ * @param startDate - The initial planned date
+ * @param holidays - Array of holiday date strings in DD-MM-YYYY format
+ * @param sundays - Array of Sunday date strings in DD-MM-YYYY format
+ * @returns The next available working date
+ */
+export function getNextWorkingDate(startDate: Date, holidays: string[], sundays: string[]): Date {
+  const result = new Date(startDate);
+  // Safety limit to prevent infinite loop (max 365 days forward)
+  let attempts = 0;
+  while (isHolidayOrSunday(result, holidays, sundays) && attempts < 365) {
+    result.setDate(result.getDate() + 1);
+    attempts++;
+  }
+  return result;
+}
+
 /**
  * Formats a relative time string (e.g., "5 seconds ago", "2 minutes ago")
  */
