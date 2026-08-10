@@ -541,6 +541,20 @@ entries.forEach((entry) => {
                           <div className="p-2.5 flex flex-col gap-2 max-h-[600px] overflow-y-auto">
                             {tasks.map((task, idx) => {
                               const entryLabel = `${String(task.entry.Entry_ID || "")} - ${String(task.entry.Company_Name || "")} · ${String(task.entry.Name_of_Enquirer || "")}`;
+                              const taskLocation = String(task.entry.Location || "").toLowerCase();
+                              const isMumbai = taskLocation === "mumbai";
+                              const isBoisar = taskLocation === "boisar";
+
+                              // Location-based colors
+                              const locationColor = isMumbai ? "#0891b2" : isBoisar ? "#7c3aed" : "var(--primary)";
+                              const locationBg = isMumbai ? "rgba(8, 145, 178, 0.06)" : isBoisar ? "rgba(124, 58, 237, 0.06)" : "var(--surface-2)";
+                              const locationBorder = isMumbai ? "rgba(8, 145, 178, 0.25)" : isBoisar ? "rgba(124, 58, 237, 0.25)" : "1px solid var(--border-light)";
+
+                              // Determine card colors: overdue/today take priority, otherwise use location color
+                              const cardBorderLeft = isOverdueDate ? "var(--danger)" : isTodayDate ? "var(--warning)" : locationColor;
+                              const cardBg = isTodayDate ? "rgba(245, 158, 11, 0.04)" : locationBg;
+                              const cardBorder = isTodayDate ? "1px solid rgba(245, 158, 11, 0.25)" : `1px solid ${locationBorder}`;
+                              const badgeColor = isOverdueDate ? "var(--danger)" : isTodayDate ? "var(--warning)" : locationColor;
 
                               return (
                                 <div
@@ -548,18 +562,23 @@ entries.forEach((entry) => {
                                   onClick={() => setShowTaskDetail({ entryId: String(task.entry.Entry_ID), stepNum: task.stepNum })}
                                   className={cn("p-3 rounded-lg cursor-pointer transition-all hover:shadow-md", isTodayDate && "ring-1 ring-amber-300/60")}
                                   style={{
-                                    background: isTodayDate ? "rgba(245, 158, 11, 0.04)" : "var(--surface-2)",
-                                    border: isTodayDate ? "1px solid rgba(245, 158, 11, 0.25)" : "1px solid var(--border-light)",
-                                    borderLeft: `3px solid ${isOverdueDate ? "var(--danger)" : isTodayDate ? "var(--warning)" : "var(--primary)"}`,
+                                    background: cardBg,
+                                    border: cardBorder,
+                                    borderLeft: `3px solid ${cardBorderLeft}`,
                                   }}
                                 >
                                   <div className="flex items-center gap-2.5 mb-2">
-                                    <div className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold text-white" style={{ background: isOverdueDate ? "var(--danger)" : isTodayDate ? "var(--warning)" : "var(--primary)" }}>
+                                    <div className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold text-white" style={{ background: badgeColor }}>
                                       {task.stepNum}
                                     </div>
                                     <div className="flex-1 min-w-0">
                                       <h4 className="text-[13px] font-semibold truncate" style={{ color: "var(--text)" }}>{entryLabel}</h4>
                                     </div>
+                                    {(isMumbai || isBoisar) && (
+                                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded text-white flex-shrink-0" style={{ background: locationColor }}>
+                                        {isMumbai ? "Mumbai" : "Boisar"}
+                                      </span>
+                                    )}
                                   </div>
                                   {!!task.entry.Timestamp && (
                                     <div className="text-[10px] mb-1" style={{ color: "var(--text-faint)" }}>
@@ -632,12 +651,17 @@ entries.forEach((entry) => {
                       const entryLabel = String(group.entry.Company_Name || "") + " · " + String(group.entry.Name_of_Enquirer || "");
                       const latestDate = group.steps[group.steps.length - 1]?.actualDate;
                       const formTimestamp = group.entry.Timestamp ? String(group.entry.Timestamp) : "";
+                      const compLocation = String(group.entry.Location || "").toLowerCase();
+                      const compIsMumbai = compLocation === "mumbai";
+                      const compIsBoisar = compLocation === "boisar";
+                      const compLocationColor = compIsMumbai ? "#0891b2" : compIsBoisar ? "#7c3aed" : "var(--success)";
+
                       return (
                         <div
                           key={idx}
                           onClick={() => setShowTaskDetail({ entryId: String(group.entry.Entry_ID), stepNum: group.steps[0].stepNum })}
                           className="p-4 rounded-xl cursor-pointer transition-all hover:shadow-md"
-                          style={{ background: "var(--surface)", border: "1px solid var(--border)", borderLeft: "4px solid var(--success)" }}
+                          style={{ background: "var(--surface)", border: "1px solid var(--border)", borderLeft: `4px solid ${compLocationColor}` }}
                         >
                           <div className="flex items-center gap-2.5 mb-3">
                             <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: "var(--success)" }}>✓</div>
@@ -653,6 +677,11 @@ entries.forEach((entry) => {
                                 </span>
                               )}
                             </div>
+                            {(compIsMumbai || compIsBoisar) && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded text-white flex-shrink-0" style={{ background: compLocationColor }}>
+                                {compIsMumbai ? "Mumbai" : "Boisar"}
+                              </span>
+                            )}
                           </div>
                           
                           <div className="flex flex-wrap gap-1.5 mb-2">
