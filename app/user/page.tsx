@@ -1052,12 +1052,27 @@ function TaskDetailModal({
   const entryLabel = `${String(entry.Company_Name || "")} · ${String(entry.Name_of_Enquirer || "")}`;
   const isSubmitter = String(entry.Submitted_By || "").toLowerCase() === email.toLowerCase();
 
-  // Parse requirements
+  // Parse requirements - handle both JSON array and plain text formats
   let requirements: { itemName: string; quantity: number; unit: string }[] = [];
+  let requirementsRawText = "";
   try {
     const reqStr = entry.Requirements_JSON as string;
-    if (reqStr) requirements = JSON.parse(reqStr);
-  } catch { /* ignore */ }
+    if (reqStr) {
+      const parsed = JSON.parse(reqStr);
+      if (Array.isArray(parsed)) {
+        requirements = parsed;
+      } else {
+        // Parsed but not an array - show as text
+        requirementsRawText = reqStr;
+      }
+    }
+  } catch {
+    // JSON parse failed - it's plain text, display as-is
+    const reqStr = entry.Requirements_JSON as string;
+    if (reqStr && reqStr.trim()) {
+      requirementsRawText = reqStr.trim();
+    }
+  }
 
   // Parse PO form data
   let poData: { poNumber?: string; poLocation?: string; qNo?: string; deliveryDate?: string; payTerms?: number } | null = null;
@@ -1150,15 +1165,21 @@ function TaskDetailModal({
         {!!entry.Name_of_Enquirer && <InfoRow label="Enquirer" value={String(entry.Name_of_Enquirer)} />}
         {!!entry.Mobile_Number && <InfoRow label="Mobile" value={String(entry.Mobile_Number)} />}
         {!!entry.Email_Id && <InfoRow label="Email" value={String(entry.Email_Id)} />}
-        {requirements.length > 0 && (
+        {(requirements.length > 0 || requirementsRawText) && (
           <div className="py-2">
             <span className="text-[11px] font-semibold" style={{ color: "var(--text-muted)" }}>Requirements:</span>
             <div className="mt-1 space-y-1">
-              {requirements.map((r, i) => (
-                <div key={i} className="text-xs" style={{ color: "var(--text)" }}>
-                  {r.itemName} - Qty: {r.quantity} {r.unit}
+              {requirements.length > 0 ? (
+                requirements.map((r, i) => (
+                  <div key={i} className="text-xs" style={{ color: "var(--text)" }}>
+                    {r.itemName} - Qty: {r.quantity} {r.unit}
+                  </div>
+                ))
+              ) : (
+                <div className="text-xs whitespace-pre-wrap" style={{ color: "var(--text)" }}>
+                  {requirementsRawText}
                 </div>
-              ))}
+              )}
             </div>
           </div>
         )}
