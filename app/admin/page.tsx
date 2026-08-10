@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { getAdminData, addUser, bulkAddUsers, updateUserAccess, addSalesPerson, removeSalesPerson, generateUserLink } from "../lib/api";
+import { getAdminData, addUser, bulkAddUsers, updateUserAccess, addSalesPerson, removeSalesPerson, generateUserLink, getHolidaysAndSundays } from "../lib/api";
 import { STEP_NAMES } from "../lib/types";
-import type { SyncState, SyncNotification } from "../lib/types";
+import type { SyncState, SyncNotification, HolidayEntry } from "../lib/types";
 import { createSyncManager, DataSyncManager } from "../lib/dataSync";
 import { formatRelativeTime } from "../lib/utils";
 
@@ -16,7 +16,7 @@ function AdminDashboardContent() {
   const [authenticated, setAuthenticated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [adminData, setAdminData] = useState<Record<string, unknown> | null>(null);
-  const [activeTab, setActiveTab] = useState<"users" | "sales" | "entries">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "sales" | "entries" | "holidays">("users");
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
   const [newUserEmail, setNewUserEmail] = useState("");
@@ -38,6 +38,10 @@ function AdminDashboardContent() {
   const [addingSalesPerson, setAddingSalesPerson] = useState(false);
   const [removingSalesPerson, setRemovingSalesPerson] = useState<string | null>(null);
   const [generatingLink, setGeneratingLink] = useState<string | null>(null);
+
+  // Holidays & Sundays state
+  const [holidaysData, setHolidaysData] = useState<{ holidays: HolidayEntry[]; sundays: string[] }>({ holidays: [], sundays: [] });
+  const [loadingHolidays, setLoadingHolidays] = useState(false);
 
   // Real-time sync state
   const [syncState, setSyncState] = useState<SyncState>({
@@ -133,6 +137,30 @@ function AdminDashboardContent() {
       showToast("Data refreshed from Google Sheet", "success");
     }
   };
+
+  const loadHolidaysData = useCallback(async () => {
+    setLoadingHolidays(true);
+    try {
+      const result = await getHolidaysAndSundays();
+      if (result.success) {
+        setHolidaysData({
+          holidays: result.holidays || [],
+          sundays: result.sundays || [],
+        });
+      }
+    } catch {
+      console.error("Failed to load holidays data");
+    } finally {
+      setLoadingHolidays(false);
+    }
+  }, []);
+
+  // Load holidays when holidays tab is selected
+  useEffect(() => {
+    if (activeTab === "holidays" && authenticated && holidaysData.holidays.length === 0 && holidaysData.sundays.length === 0) {
+      loadHolidaysData();
+    }
+  }, [activeTab, authenticated, holidaysData.holidays.length, holidaysData.sundays.length, loadHolidaysData]);
 
   const handleAddUser = async () => {
     if (!newUserEmail.trim() || !newUserName.trim()) {
@@ -376,7 +404,7 @@ function AdminDashboardContent() {
       </header>
 
       <div className="flex gap-1 px-6 pt-4" style={{ borderBottom: "1px solid var(--border)" }}>
-        {(["users", "sales", "entries"] as const).map((tab) => (
+        {(["users", "sales", "entries", "holidays"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -387,7 +415,7 @@ function AdminDashboardContent() {
               borderBottom: activeTab === tab ? "2px solid var(--primary)" : "2px solid transparent",
             }}
           >
-            {tab === "users" ? "Users (" + users.length + ")" : tab === "sales" ? "Sales Persons (" + salesPersons.length + ")" : "Entries (" + entries.length + ")"}
+            {tab === "users" ? "Users (" + users.length + ")" : tab === "sales" ? "Sales Persons (" + salesPersons.length + ")" : tab === "entries" ? "Entries (" + entries.length + ")" : "Holidays & Sundays"}
           </button>
         ))}
       </div>
@@ -553,9 +581,9 @@ function AdminDashboardContent() {
                     <tr key={idx} style={{ borderBottom: "1px solid var(--border-light)" }}>
                       <td className="py-2 px-2 font-mono" style={{ color: "var(--primary)" }}>{String(entry.Entry_ID)}</td>
                       <td className="py-2 px-2">
-                        {entry.Step_8_Dispatch_GatePassNo ? (
+                        {entry.Challan_Number ? (
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: "var(--primary-bg)", color: "var(--primary)" }}>
-                            {String(entry.Step_8_Dispatch_GatePassNo)}
+                            {String(entry.Challan_Number)}
                           </span>
                         ) : (
                           <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>-</span>
@@ -579,6 +607,96 @@ function AdminDashboardContent() {
               </table>
               {entries.length === 0 && <p className="text-center py-8 text-xs" style={{ color: "var(--text-muted)" }}>No entries yet.</p>}
             </div>
+          </div>
+        )}
+
+        {activeTab === "holidays" && (
+          <div className="space-y-6">
+            {/* Info Banner */}
+            
+
+            {loadingHolidays ? (
+              <div className="flex flex-col items-center gap-3 py-12">
+                <div className="w-8 h-8 border-3 rounded-full animate-spin" style={{ borderColor: "var(--border)", borderTopColor: "var(--primary)" }} />
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>Loading holidays & Sundays...</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Holidays Section */}
+                <div className="p-5 rounded-xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold flex items-center gap-2" style={{ color: "var(--text)" }}>
+                      🎉 Holidays
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: "var(--danger)" }}>
+                        {holidaysData.holidays.length}
+                      </span>
+                    </h3>
+                    <button
+                      onClick={loadHolidaysData}
+                      className="text-[10px] px-2.5 py-1 rounded font-semibold cursor-pointer"
+                      style={{ background: "var(--primary-bg)", color: "var(--primary)", border: "1px solid var(--primary)" }}
+                    >
+                      🔄 Refresh
+                    </button>
+                  </div>
+                  
+                  <div className="overflow-y-auto max-h-[400px]">
+                    {holidaysData.holidays.length > 0 ? (
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                            <th className="text-left py-2 px-2 font-semibold" style={{ color: "var(--text-muted)" }}>#</th>
+                            <th className="text-left py-2 px-2 font-semibold" style={{ color: "var(--text-muted)" }}>Date</th>
+                            <th className="text-left py-2 px-2 font-semibold" style={{ color: "var(--text-muted)" }}>Reason</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {holidaysData.holidays.map((holiday, idx) => (
+                            <tr key={idx} style={{ borderBottom: "1px solid var(--border-light)" }}>
+                              <td className="py-2 px-2" style={{ color: "var(--text-faint)" }}>{idx + 1}</td>
+                              <td className="py-2 px-2 font-mono font-semibold" style={{ color: "var(--danger)" }}>{holiday.date}</td>
+                              <td className="py-2 px-2" style={{ color: "var(--text)" }}>{holiday.reason}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p className="text-center py-6 text-xs" style={{ color: "var(--text-muted)" }}>No holidays found. Add dates in the &quot;sunday&amp;holiday&quot; tab column A &amp; B.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Sundays Section */}
+                <div className="p-5 rounded-xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold flex items-center gap-2" style={{ color: "var(--text)" }}>
+                      📅 Sundays
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: "var(--warning)" }}>
+                        {holidaysData.sundays.length}
+                      </span>
+                    </h3>
+                  </div>
+                 
+                  <div className="overflow-y-auto max-h-[400px]">
+                    {holidaysData.sundays.length > 0 ? (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {holidaysData.sundays.map((sundayDate, idx) => (
+                          <div
+                            key={idx}
+                            className="px-3 py-2 rounded-lg text-center"
+                            style={{ background: "var(--surface-2)", border: "1px solid var(--border-light)" }}
+                          >
+                            <span className="text-[11px] font-mono font-semibold" style={{ color: "var(--warning)" }}>{sundayDate}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-center py-6 text-xs" style={{ color: "var(--text-muted)" }}>No Sunday dates found. Add dates in the &quot;sunday&amp;holiday&quot; tab column D from D3.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
