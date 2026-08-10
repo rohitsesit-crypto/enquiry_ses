@@ -163,3 +163,15 @@ export const DEFAULT_SYNC_CONFIG: SyncConfig = {
   maxNotifications: 10,
   enabled: true,
 };
+
+// ==================== HOLIDAY & SUNDAY TYPES ====================
+
+export interface HolidayEntry {
+  date: string;       // DD-MM-YYYY format
+  reason: string;
+}
+
+export interface HolidaysAndSundaysData {
+  holidays: HolidayEntry[];
+  sundays: string[];  // Array of DD-MM-YYYY date strings
+}
