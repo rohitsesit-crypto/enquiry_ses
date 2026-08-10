@@ -167,3 +167,14 @@ export async function updateEntry(email: string, entryId: string, formData: Reco
     body: { email, entryId, formData },
   });
 }
+
+// ===== Holidays & Sundays API =====
+
+export async function getHolidaysAndSundays() {
+  return callApi<{
+    success: boolean;
+    holidays: { date: string; reason: string }[];
+    sundays: string[];
+    message?: string;
+  }>('getHolidaysAndSundays', { body: {} });
+}
