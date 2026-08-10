@@ -161,3 +161,14 @@ button, [role="button"], a {
 .dark ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* Scroll container with scrollbar at top (below search bar) */
+.scroll-top-wrapper {
+  display: flex;
+  flex-direction: column;
+  transform: rotateX(180deg);
+}
+
+.scroll-top-wrapper > .scroll-top-content {
+  transform: rotateX(180deg);
+}
