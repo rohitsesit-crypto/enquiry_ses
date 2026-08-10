@@ -275,6 +275,26 @@ entries.forEach((entry) => {
     const typeOfEnquiry = String(task.entry.Type_of_Enquiry || "").toLowerCase();
     const remark = String(task.entry.Remark || "").toLowerCase();
     const stepName = STEP_NAMES[task.stepNum]?.toLowerCase() || "";
+    // Invoice number search - check dispatch invoice/challan and Step 7 invoices
+    const dispatchInvoiceChallan = String(task.entry.Step_8_Dispatch_InvoiceChallanNo || "").toLowerCase();
+    const invoiceNo = String(task.entry.Invoice_No || "").toLowerCase();
+    // Also search in Step_7_Invoices_JSON for invoice numbers
+    let invoiceJsonMatch = false;
+    const invoicesJson = String(task.entry.Step_7_Invoices_JSON || "");
+    if (invoicesJson && query) {
+      invoiceJsonMatch = invoicesJson.toLowerCase().includes(query);
+    }
+    // Search across ALL fields of the entry for non-standard data
+    let allFieldsMatch = false;
+    if (!entryId.includes(query) && !companyName.includes(query)) {
+      for (const key of Object.keys(task.entry)) {
+        const val = String(task.entry[key] || "").toLowerCase();
+        if (val.includes(query)) {
+          allFieldsMatch = true;
+          break;
+        }
+      }
+    }
 
     return (
       entryId.includes(query) ||
@@ -287,7 +307,11 @@ entries.forEach((entry) => {
       emailId.includes(query) ||
       typeOfEnquiry.includes(query) ||
       remark.includes(query) ||
-      stepName.includes(query)
+      stepName.includes(query) ||
+      dispatchInvoiceChallan.includes(query) ||
+      invoiceNo.includes(query) ||
+      invoiceJsonMatch ||
+      allFieldsMatch
     );
   };
 
@@ -464,7 +488,7 @@ entries.forEach((entry) => {
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-base">🔍</span>
                 <input
                   type="text"
-                  placeholder="Search by company, enquirer, entry ID, challan, location, step..."
+                  placeholder="Search by invoice no, company, enquirer, entry ID, challan, location, step..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-10 pr-10 py-2.5 rounded-lg text-sm outline-none transition-all"
@@ -495,7 +519,7 @@ entries.forEach((entry) => {
 
             {currentSection === "pending" && (
               <div>
-                <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center justify-between mb-3">
                   <h3 className="text-base font-bold flex items-center gap-2" style={{ color: "var(--text)" }}>
                     Pending Tasks
                     <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full text-white" style={{ background: "var(--primary)" }}>
@@ -511,7 +535,11 @@ entries.forEach((entry) => {
                     <p className="text-xs">No pending tasks for your assigned steps.</p>
                   </div>
                 ) : (
-                  <div ref={scrollContainerRef} className="flex gap-4 overflow-x-auto pb-4">
+                  <div className="scroll-top-wrapper">
+                    <div
+                      ref={scrollContainerRef}
+                      className="scroll-top-content flex gap-4 overflow-x-auto pt-2 pb-4"
+                    >
                     {sortedDateKeys.map((dateKey) => {
                       const tasks = pendingByDate[dateKey];
                       const dateObj = dateKey !== "No Date" ? parseDateString(dateKey) : null;
@@ -624,6 +652,7 @@ entries.forEach((entry) => {
                         </div>
                       );
                     })}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1139,6 +1168,70 @@ function TaskDetailModal({
         {!!entry.Remark && <InfoRow label="Remark" value={String(entry.Remark)} />}
         {!!entry.Submitted_By && <InfoRow label="Submitted By" value={String(entry.Submitted_By)} />}
       </div>
+
+      {/* All Additional Info from Google Sheet (non-standard fields) */}
+      {(() => {
+        // Known/standard fields that are already displayed above or in step details
+        const knownFields = new Set([
+          'Entry_ID', 'Serial_No', 'Timestamp', 'Submitted_By', 'Location',
+          'Company_Name', 'Name_of_Enquirer', 'Mobile_Number', 'Email_Id',
+          'Requirements_JSON', 'Sales_Person_Accountable', 'Sales_Close_Date',
+          'Type_of_Enquiry', 'Remark', 'Current_Step', 'Is_Completed', 'Is_Stopped',
+          'Challan_Number'
+        ]);
+        // Also exclude step-related fields (Step_1_Status, Step_1_Planned_Date, etc.)
+        const isStepField = (key: string) => /^Step_\d+_/.test(key);
+
+        const extraFields = Object.entries(entry).filter(([key, value]) => {
+          if (knownFields.has(key)) return false;
+          if (isStepField(key)) return false;
+          // Only show fields that have a non-empty value
+          const strVal = String(value ?? '').trim();
+          if (!strVal || strVal === '[]' || strVal === '{}' || strVal === 'false' || strVal === '0') return false;
+          return true;
+        });
+
+        if (extraFields.length === 0) return null;
+
+        return (
+          <div className="mb-6 p-4 rounded-lg" style={{ background: "rgba(99, 102, 241, 0.04)", border: "1px solid rgba(99, 102, 241, 0.15)" }}>
+            <h4 className="text-[11px] font-bold mb-3 flex items-center gap-1.5" style={{ color: "#6366f1" }}>
+              📋 All Additional Information
+            </h4>
+            <div className="space-y-2">
+              {extraFields.map(([key, value]) => {
+                // Format the key: replace underscores with spaces, title case
+                const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                let displayValue = String(value ?? '');
+                
+                // Try to parse JSON and display it nicely
+                try {
+                  const parsed = JSON.parse(displayValue);
+                  if (Array.isArray(parsed)) {
+                    displayValue = parsed.map((item, i) => {
+                      if (typeof item === 'object' && item !== null) {
+                        return Object.entries(item).map(([k, v]) => `${k}: ${v}`).join(', ');
+                      }
+                      return String(item);
+                    }).join(' | ');
+                  } else if (typeof parsed === 'object' && parsed !== null) {
+                    displayValue = Object.entries(parsed).map(([k, v]) => `${k}: ${v}`).join(', ');
+                  }
+                } catch {
+                  // Not JSON, use as-is
+                }
+
+                return (
+                  <div key={key} className="flex items-start gap-2.5 py-1">
+                    <span className="text-[11px] font-semibold min-w-[120px] flex-shrink-0" style={{ color: "var(--text-muted)" }}>{label}</span>
+                    <span className="text-xs font-medium break-all" style={{ color: "var(--text)" }}>{displayValue}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Step Progress */}
       <h3 className="text-sm font-bold mb-4" style={{ color: "var(--text)" }}>
