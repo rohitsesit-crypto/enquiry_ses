@@ -12,6 +12,16 @@ interface StepWorkflowProps {
   onCancel: () => void;
 }
 
+function UploadIcon() {
+  return (
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
+    </svg>
+  );
+}
+
 export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: StepWorkflowProps) {
   const [status, setStatus] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
@@ -48,7 +58,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
     if (reqStr) requirements = JSON.parse(reqStr);
   } catch { /* ignore */ }
 
-  // Get history totals for step 7
+  // Get history totals for step 7 - total received so far across all batches
   function getHistoryTotals(): Record<string, number> {
     const totals: Record<string, number> = {};
     try {
@@ -66,788 +76,321 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
     return totals;
   }
 
+  // Check if all quantities are fully matched
+  function isFullyMatched(): boolean {
+    const totals = getHistoryTotals();
+    for (const req of requirements) {
+      const received = totals[req.itemName] || 0;
+      if (received < req.quantity) return false;
+    }
+    return true;
+  }
+
+  // Get remaining quantities for step 7
+  function getRemainingQuantities(): { itemName: string; remaining: number; unit: string; total: number; received: number }[] {
+    const totals = getHistoryTotals();
+    return requirements.map((req) => {
+      const received = totals[req.itemName] || 0;
+      return {
+        itemName: req.itemName,
+        remaining: Math.max(0, req.quantity - received),
+        unit: req.unit,
+        total: req.quantity,
+        received: received,
+      };
+    }).filter((item) => item.remaining > 0);
+  }
+
   // Initialize invoice entries for step 7
   useEffect(() => {
     if (stepNum === 7 && requirements.length > 0 && invoiceEntries.length === 0) {
-      setInvoiceEntries(requirements.map((r) => ({ itemName: r.itemName, quantityReceived: "" })));
+      const totals = getHistoryTotals();
+      setInvoiceEntries(
+        requirements.map((r) => ({
+          itemName: r.itemName,
+          quantityReceived: String(Math.max(0, r.quantity - (totals[r.itemName] || 0))),
+        }))
+      );
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepNum]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setAttachment(e.target.files[0]);
-    }
+    const file = e.target.files?.[0];
+    if (file) setAttachment(file);
   };
 
   const handleSubmit = async () => {
     setSubmitting(true);
+    try {
+      let attachmentUrl = "";
 
-    const data: Record<string, unknown> = { remark };
-
-    // Handle attachment upload to Google Drive via Apps Script
-    if (attachment) {
-      setUploadingFile(true);
-      const entryId = String(entry.Entry_ID || "unknown");
-      const result = await uploadToDrive(attachment, `FMS/${entryId}/step-${stepNum}`);
-      setUploadingFile(false);
-
-      if (result.success && result.url) {
-        data.attachment = result.url;
-      } else {
-        alert("File upload failed: " + (result.error || "Unknown error"));
-        setSubmitting(false);
-        return;
-      }
-    }
-
-    switch (stepNum) {
-      case 1: // Quotation
-        if (!status) { alert("Please select a status"); setSubmitting(false); return; }
-        data.conditionAnswer = status;
-        data.status = status;
-        break;
-
-      case 2: // Follow Up 1
-        if (!status) { alert("Please select a status"); setSubmitting(false); return; }
-        data.conditionAnswer = status;
-        data.status = status;
-        break;
-
-      case 3: // Follow Up 2
-        if (!status) { alert("Please select Yes or No"); setSubmitting(false); return; }
-        data.conditionAnswer = status;
-        data.status = status;
-        break;
-
-      case 4: // Purchase Date
-        if (!status) { alert("Please select Yes or No"); setSubmitting(false); return; }
-        data.conditionAnswer = status;
-        data.status = status;
-        if (status === "Yes") {
-          if (!poNumber.trim()) { alert("PO Number is required"); setSubmitting(false); return; }
-          if (!poLocation.trim()) { alert("Location is required"); setSubmitting(false); return; }
-          if (!qNo.trim()) { alert("Q.No. is required"); setSubmitting(false); return; }
-          if (!deliveryDate) { alert("Delivery Date is required"); setSubmitting(false); return; }
-          if (!payTerms) { alert("Pay Terms is required"); setSubmitting(false); return; }
-          data.poNumber = poNumber.trim();
-          data.poLocation = poLocation.trim();
-          data.qNo = qNo.trim();
-          // Persist as DD-MM-YYYY so the sheet never swaps day/month
-          data.deliveryDate = formatStorageDate(deliveryDate);
-          data.payTerms = parseInt(payTerms);
-        }
-        break;
-
-      case 5: // Acknowledgement
-        data.conditionAnswer = "Yes";
-        break;
-
-      case 6: // Inventory Check
-        if (!status) { alert("Please select Yes or No"); setSubmitting(false); return; }
-        data.conditionAnswer = status;
-        data.status = status;
-        break;
-
-      case 7: { // Invoice and E-Way Bill
-        // Allow partial submissions
-        const hasAnyQuantity = invoiceEntries.some((ie) => parseInt(ie.quantityReceived || "0") > 0);
-        if (!hasAnyQuantity) {
-          alert("Please enter at least one item's received quantity.");
-          setSubmitting(false);
-          return;
-        }
-
-        if (!invoiceNumber.trim()) {
-          alert("Please enter the Invoice Number.");
-          setSubmitting(false);
-          return;
-        }
-
-        // Upload single invoice attachment to Google Drive via Apps Script (if provided)
-        let invoiceAttachmentUrl = "";
-        if (attachment) {
-          setUploadingFile(true);
-          const entryId = String(entry.Entry_ID || "unknown");
-          const uploadResult = await uploadToDrive(attachment, `FMS/${entryId}/step-7/invoices`);
-          setUploadingFile(false);
+      // Upload file if present
+      if (attachment) {
+        setUploadingFile(true);
+        try {
+          const uploadResult = await uploadToDrive(attachment, String(entry.Entry_ID || "unknown"));
           if (uploadResult.success && uploadResult.url) {
-            invoiceAttachmentUrl = uploadResult.url;
-          } else {
-            alert(`Failed to upload invoice: ${uploadResult.error || "Unknown error"}`);
-            setSubmitting(false);
-            return;
+            attachmentUrl = uploadResult.url;
           }
+        } catch (err) {
+          console.error("Upload error:", err);
+        } finally {
+          setUploadingFile(false);
         }
-
-        const now = new Date();
-        const uploadedAt = invoiceAttachmentUrl ? formatStorageTimestamp(now) : "";
-        const invoicesData = invoiceEntries.map((ie, idx) => ({
-          itemName: ie.itemName,
-          quantityReceived: parseInt(ie.quantityReceived || "0"),
-          totalQuantity: requirements[idx]?.quantity || 0,
-          attachment: "",
-          uploadedAt: "",
-        }));
-
-        data.invoices = invoicesData;
-        data.invoiceNo = invoiceNumber.trim();
-
-        // Store single attachment for the whole batch
-        if (invoiceAttachmentUrl) {
-          data.attachment = `Invoice ${invoiceNumber.trim()}: ${invoiceAttachmentUrl}${uploadedAt ? " [" + uploadedAt + "]" : ""}`;
-        }
-
-        // Build step7AttachmentEntries for the separate sheet
-        if (invoiceAttachmentUrl) {
-          data.step7AttachmentEntries = [{
-            entryId: String(entry.Entry_ID || "unknown"),
-            invoiceNo: invoiceNumber.trim(),
-            timestamp: formatStorageTimestamp(now),
-            attachmentUrl: invoiceAttachmentUrl,
-          }];
-        }
-        break;
       }
 
-      case 8: // Dispatch
-        if (!dispatchMode) { alert("Please select dispatch mode"); setSubmitting(false); return; }
-        if (!dispatchName.trim()) { alert("Name is required"); setSubmitting(false); return; }
-        if (!dispatchMobNo.trim()) { alert("Mobile number is required"); setSubmitting(false); return; }
-        if (!invoiceChallanNo.trim()) { alert("Invoice/Challan No is required"); setSubmitting(false); return; }
-        if (!lrNo.trim()) { alert("LR No is required"); setSubmitting(false); return; }
-        data.dispatchMode = dispatchMode;
-        data.dispatchName = dispatchName.trim();
-        data.dispatchMobNo = dispatchMobNo.trim();
-        data.invoiceChallanNo = invoiceChallanNo.trim();
-        data.lrNo = lrNo.trim();
-        data.conditionAnswer = "Yes";
-        break;
+      // Build submission data based on step
+      const data: Record<string, unknown> = {
+        status: status || "Completed",
+        remark,
+        attachment: attachmentUrl || undefined,
+      };
 
-      case 9: // IMS Entry Outward
-        data.conditionAnswer = "Yes";
-        break;
+      if (stepNum === 4 && status === "Yes") {
+        data.poData = {
+          poNumber,
+          location: poLocation,
+          qNo,
+          deliveryDate: deliveryDate ? formatStorageDate(deliveryDate) : "",
+          payTerms: payTerms ? parseInt(payTerms) : 0,
+        };
+      }
 
-      case 10: // Reminder
-        data.conditionAnswer = "Yes";
-        break;
+      if (stepNum === 7) {
+        const totals = getHistoryTotals();
+        data.invoiceData = {
+          invoiceNumber,
+          items: invoiceEntries.map((ie) => ({
+            itemName: ie.itemName,
+            quantityReceived: parseInt(ie.quantityReceived) || 0,
+            totalQuantity: requirements.find((r) => r.itemName === ie.itemName)?.quantity || 0,
+            previouslyReceived: totals[ie.itemName] || 0,
+            attachment: attachmentUrl || "",
+          })),
+        };
+        // Flag: allow partial - move to step 8 even if not fully matched
+        data.allowPartial = true;
+      }
+
+      if (stepNum === 8) {
+        data.dispatchData = {
+          mode: dispatchMode,
+          name: dispatchName,
+          mobNo: dispatchMobNo,
+          invoiceChallanNo,
+          lrNo,
+        };
+        // Check if Step 7 quantities are fully matched
+        // If not, after Step 8 completion, should loop back to Step 7
+        const fullyMatched = isFullyMatched();
+        data.step7FullyMatched = fullyMatched;
+        if (!fullyMatched) {
+          data.loopBackToStep7 = true;
+        }
+      }
+
+      onSubmit(data);
+    } catch (error) {
+      console.error("Submit error:", error);
+    } finally {
+      setSubmitting(false);
     }
-
-    onSubmit(data);
-    setSubmitting(false);
   };
 
-  // Upload icon SVG component
-  const UploadIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" y1="3" x2="12" y2="15" />
-    </svg>
-  );
+  // Validation
+  const isValid = (() => {
+    if (stepNum === 1 || stepNum === 2 || stepNum === 5 || stepNum === 6 || stepNum === 9 || stepNum === 10) {
+      return !!status;
+    }
+    if (stepNum === 3) {
+      return !!status && !!attachment;
+    }
+    if (stepNum === 4) {
+      if (!status) return false;
+      if (status === "Yes") return !!poNumber && !!deliveryDate;
+      return true;
+    }
+    if (stepNum === 7) {
+      return !!invoiceNumber && invoiceEntries.some((ie) => parseInt(ie.quantityReceived) > 0) && !!attachment;
+    }
+    if (stepNum === 8) {
+      return !!dispatchMode && !!dispatchName && !!invoiceChallanNo;
+    }
+    return true;
+  })();
 
   return (
     <div>
-      <h2 className="text-base font-bold pb-3.5 mb-4 flex items-center gap-2" style={{ color: "var(--text)", borderBottom: "1px solid var(--border)" }}>
-        <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ background: "var(--primary)" }}>{stepNum}</span>
-        {STEP_NAMES[stepNum]}
-      </h2>
-
-      {/* Step Info */}
-      <div className="mb-4 p-3 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-        <div className="flex items-center gap-2.5 py-1">
-          <span className="text-[11px] font-semibold min-w-[100px]" style={{ color: "var(--text-muted)" }}>Step</span>
-          <span className="text-xs font-medium" style={{ color: "var(--text)" }}>{STEP_NAMES[stepNum]}</span>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-base font-bold" style={{ color: "var(--text)" }}>
+            Step {stepNum}: {STEP_NAMES[stepNum]}
+          </h2>
+          <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>
+            Entry: {String(entry.Company_Name || "")} &middot; {String(entry.Name_of_Enquirer || "")}
+          </p>
+          {plannedDate && (
+            <p className="text-[11px] mt-0.5" style={{ color: "var(--primary)" }}>
+              Planned: {formatDate(plannedDate)}
+            </p>
+          )}
         </div>
-        {plannedDate && (
-          <div className="flex items-center gap-2.5 py-1">
-            <span className="text-[11px] font-semibold min-w-[100px]" style={{ color: "var(--text-muted)" }}>Planned Date</span>
-            <span className="text-xs font-medium" style={{ color: "var(--primary)" }}>{formatDate(plannedDate)}</span>
-          </div>
-        )}
-        {/* Show Challan Number if available */}
-        {!!entry.Challan_Number && (
-          <div className="flex items-center gap-2.5 py-1">
-            <span className="text-[11px] font-semibold min-w-[100px]" style={{ color: "var(--text-muted)" }}>Challan No.</span>
-            <span className="text-xs font-bold" style={{ color: "var(--primary)" }}>{String(entry.Challan_Number)}</span>
-          </div>
-        )}
-      </div>
-
-      {/* PO Entry History (from Step 4) */}
-      {((): React.ReactNode => {
-        let poData: { poNumber?: string; poLocation?: string; qNo?: string; deliveryDate?: string; payTerms?: number } | null = null;
-        try {
-          const poStr = entry.Step_4_PO_JSON as string;
-          if (poStr) poData = JSON.parse(poStr);
-        } catch { /* ignore */ }
-        // Fallback: construct from individual columns
-        if (!poData) {
-          const poNumber = entry.Step_4_PO_Number as string;
-          const poLocation = entry.Step_4_PO_Location as string;
-          const qNo = entry.Step_4_PO_QNo as string;
-          const deliveryDate = entry.Step_4_PO_Delivery_Date as string;
-          const payTerms = entry.Step_4_PO_PayTerms;
-          if (poNumber || poLocation || qNo || deliveryDate || payTerms) {
-            poData = {
-              poNumber: poNumber || undefined,
-              poLocation: poLocation || undefined,
-              qNo: qNo || undefined,
-              deliveryDate: deliveryDate || undefined,
-              payTerms: payTerms ? Number(payTerms) : undefined,
-            };
-          }
-        }
-        if (!poData) return null;
-        return (
-          <div className="mb-4" >
-           
-          </div>
-        );
-      })()}
-
-      {/* Dispatch History (from Step 8) */}
-      {((): React.ReactNode => {
-        let dispatchHistoryData: { dispatchMode?: string; dispatchName?: string; dispatchMobNo?: string; invoiceChallanNo?: string; lrNo?: string; gatePassNo?: string } | null = null;
-        try {
-          const dispStr = entry.Step_8_Dispatch_JSON as string;
-          if (dispStr) dispatchHistoryData = JSON.parse(dispStr);
-        } catch { /* ignore */ }
-        // Fallback: construct from individual columns
-        if (!dispatchHistoryData) {
-          const dispatchMode = entry.Step_8_Dispatch_Mode as string;
-          const dispatchName = entry.Step_8_Dispatch_Name as string;
-          const dispatchMobNo = entry.Step_8_Dispatch_MobNo as string;
-          const invoiceChallanNo = entry.Step_8_Dispatch_InvoiceChallanNo as string;
-          const gatePassNo = entry.Step_8_Dispatch_GatePassNo as string;
-          const lrNo = entry.Step_8_Dispatch_LRNo as string;
-          if (dispatchMode || dispatchName || dispatchMobNo || invoiceChallanNo || gatePassNo || lrNo) {
-            dispatchHistoryData = {
-              dispatchMode: dispatchMode || undefined,
-              dispatchName: dispatchName || undefined,
-              dispatchMobNo: dispatchMobNo || undefined,
-              invoiceChallanNo: invoiceChallanNo || undefined,
-              gatePassNo: gatePassNo || undefined,
-              lrNo: lrNo || undefined,
-            };
-          }
-        }
-        if (!dispatchHistoryData) return null;
-        return (
-          <div className="mb-4">
-            
-          </div>
-        );
-      })()}
-
-      {/* Step-specific content */}
-     {stepNum === 1 && (
-  <div>
-    <label
-      className="block text-[11px] font-semibold mb-1.5"
-      style={{ color: "var(--text-secondary)" }}
-    >
-      Status <span style={{ color: "var(--danger)" }}>*</span>
-    </label>
-
-    <div className="flex gap-2">
-      {["Quoted", "Not Quoted", "Not Confirmed"].map((opt) => (
         <button
-          key={opt}
-          type="button"
-          onClick={() => setStatus(opt)}
-          className="flex-1 py-2.5 rounded-md text-xs font-semibold transition-all cursor-pointer"
-          style={{
-            background:
-              status === opt
-                ? opt === "Quoted"
-                  ? "var(--success)"
-                  : opt === "Not Quoted"
-                  ? "var(--danger)"
-                  : "var(--warning)"
-                : "var(--surface-2)",
-            color: status === opt ? "white" : "var(--text)",
-            border:
-              "1px solid " +
-              (status === opt ? "transparent" : "var(--border)"),
-            opacity: status && status !== opt ? 0.5 : 1,
-          }}
+          onClick={onCancel}
+          className="text-lg cursor-pointer"
+          style={{ color: "var(--text-muted)" }}
         >
-          {opt}
+          &#x2715;
         </button>
-      ))}
-    </div>
-  </div>
-)}
-
-{stepNum === 2 && (
-  <div className="space-y-4">
-    <div>
-      <label
-        className="block text-[11px] font-semibold mb-1.5"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        Upload Attachment <span style={{ color: "var(--danger)" }}>*</span>
-      </label>
-
-      <div
-        className="border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-all hover:shadow-md"
-        style={{
-          borderColor: attachment ? "var(--success)" : "var(--danger)",
-          background: attachment
-            ? "rgba(5,150,105,0.04)"
-            : "var(--surface-2)",
-        }}
-        onClick={() =>
-          document.getElementById(`file-step-${stepNum}`)?.click()
-        }
-      >
-        <input
-          type="file"
-          id={`file-step-${stepNum}`}
-          className="hidden"
-          onChange={handleFileChange}
-          required
-        />
-
-        <div className="flex flex-col items-center gap-2">
-          <div
-            style={{
-              color: attachment ? "var(--success)" : "var(--text-muted)",
-            }}
-          >
-            <UploadIcon />
-          </div>
-
-          <p
-            className="text-xs"
-            style={{ color: "var(--text-muted)" }}
-          >
-            {attachment
-              ? "📎 " + attachment.name
-              : "Click or tap to upload file *"}
-          </p>
-        </div>
       </div>
 
-      {!attachment && (
-        <p className="text-[11px] mt-1 text-red-500">
-          Attachment is required.
-        </p>
-      )}
-    </div>
-
-    <div>
-      <label
-        className="block text-[11px] font-semibold mb-1.5"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        Status <span style={{ color: "var(--danger)" }}>*</span>
-      </label>
-
-      <div className="flex gap-2">
-        {["Quoted", "Not Quoted", "Not Confirmed"].map((opt) => (
-          <button
-            key={opt}
-            type="button"
-            onClick={() => setStatus(opt)}
-            className="flex-1 py-2.5 rounded-md text-xs font-semibold transition-all cursor-pointer"
-            style={{
-              background:
-                status === opt
-                  ? opt === "Quoted"
-                    ? "var(--success)"
-                    : opt === "Not Quoted"
-                    ? "var(--danger)"
-                    : "var(--warning)"
-                  : "var(--surface-2)",
-              color: status === opt ? "white" : "var(--text)",
-              border:
-                "1px solid " +
-                (status === opt ? "transparent" : "var(--border)"),
-              opacity: status && status !== opt ? 0.5 : 1,
-            }}
-          >
-            {opt}
-          </button>
-        ))}
-      </div>
-    </div>
-  </div>
-)}
-
-     {stepNum === 3 && (
-  <div className="space-y-4">
-    {/* Attachment */}
-    <div>
-      <label
-        className="block text-[11px] font-semibold mb-1.5"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        Upload Attachment <span style={{ color: "var(--danger)" }}>*</span>
-      </label>
-
-      <div
-        className="border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-all hover:shadow-md"
-        style={{
-          borderColor: attachment ? "var(--success)" : "var(--danger)",
-          background: attachment
-            ? "rgba(5,150,105,0.04)"
-            : "var(--surface-2)",
-        }}
-        onClick={() => document.getElementById("file-step-3")?.click()}
-      >
-        <input
-          type="file"
-          id="file-step-3"
-          className="hidden"
-          onChange={handleFileChange}
-        />
-
-        <div className="flex flex-col items-center gap-2">
-          <div
-            style={{
-              color: attachment
-                ? "var(--success)"
-                : "var(--text-muted)",
-            }}
-          >
-            <UploadIcon />
-          </div>
-
-          <p
-            className="text-xs"
-            style={{ color: "var(--text-muted)" }}
-          >
-            {attachment
-              ? `📎 ${attachment.name}`
-              : "Click or tap to upload file *"}
-          </p>
-        </div>
-      </div>
-
-      {!attachment && (
-        <p className="mt-1 text-[11px]" style={{ color: "var(--danger)" }}>
-          Attachment is required.
-        </p>
-      )}
-    </div>
-
-    {/* Status */}
-    <div>
-      <label
-        className="block text-[11px] font-semibold mb-1.5"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        Status <span style={{ color: "var(--danger)" }}>*</span>
-      </label>
-
-      <div className="flex gap-2">
-        {["Yes", "No"].map((opt) => (
-          <button
-            key={opt}
-            type="button"
-            onClick={() => setStatus(opt)}
-            className="flex-1 py-3 rounded-md text-sm font-semibold transition-all cursor-pointer"
-            style={{
-              background:
-                status === opt
-                  ? opt === "Yes"
-                    ? "var(--success)"
-                    : "var(--danger)"
-                  : "var(--surface-2)",
-              color: status === opt ? "white" : "var(--text)",
-              border:
-                "1px solid " +
-                (status === opt ? "transparent" : "var(--border)"),
-              opacity: status && status !== opt ? 0.5 : 1,
-            }}
-          >
-            {opt === "Yes" ? "✅ Yes" : "❌ No"}
-          </button>
-        ))}
-      </div>
-    </div>
-  </div>
-)}
-
-      {stepNum === 4 && (
-        <div className="space-y-4">
-          <div>
-            <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>Status <span style={{ color: "var(--danger)" }}>*</span></label>
-            <div className="flex gap-2">
-              {["Yes", "No"].map((opt) => (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => setStatus(opt)}
-                  className="flex-1 py-3 rounded-md text-sm font-semibold transition-all cursor-pointer"
-                  style={{
-                    background: status === opt ? (opt === "Yes" ? "var(--success)" : "var(--danger)") : "var(--surface-2)",
-                    color: status === opt ? "white" : "var(--text)",
-                    border: "1px solid " + (status === opt ? "transparent" : "var(--border)"),
-                    opacity: status && status !== opt ? 0.5 : 1,
-                  }}
-                >
-                  {opt === "Yes" ? "✅ Yes" : "❌ No"}
-                </button>
-              ))}
+      {/* Entry Details Summary */}
+      <div className="mb-5 p-3 rounded-lg space-y-1.5" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+        <h4 className="text-[11px] font-bold mb-2" style={{ color: "var(--text-secondary)" }}>Entry Details</h4>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+          {!!entry.Timestamp && (
+            <div className="flex flex-col">
+              <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>Date</span>
+              <span className="text-[11px]" style={{ color: "var(--text)" }}>{formatDateOnly(String(entry.Timestamp))}</span>
             </div>
-          </div>
-          {status === "Yes" && (
-            <div className="p-4 rounded-lg space-y-3" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-              <h4 className="text-xs font-bold" style={{ color: "var(--text)" }}>Purchase Order Form</h4>
-              <InputField label="PO Number" value={poNumber} onChange={setPoNumber} required />
-              <InputField label="Location" value={poLocation} onChange={setPoLocation} required />
-              <InputField label="Q.No." value={qNo} onChange={setQNo} required />
-              <div>
-                <label className="block text-[11px] font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>Delivery Date <span style={{ color: "var(--danger)" }}>*</span></label>
-                <input type="date" value={toInputDate(deliveryDate)} onChange={(e) => setDeliveryDate(e.target.value)} className="w-full px-3 py-2 rounded-md text-xs outline-none" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
-                {deliveryDate && (
-                  <p className="mt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>{formatDateOnly(deliveryDate)}</p>
-                )}
-              </div>
-              <InputField label="Pay Terms (days)" value={payTerms} onChange={setPayTerms} type="number" required />
+          )}
+          {!!entry.Submitted_By && (
+            <div className="flex flex-col">
+              <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>Submitted By</span>
+              <span className="text-[11px]" style={{ color: "var(--text)" }}>{String(entry.Submitted_By)}</span>
+            </div>
+          )}
+          {!!entry.Location && (
+            <div className="flex flex-col">
+              <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>Location</span>
+              <span className="text-[11px]" style={{ color: "var(--text)" }}>{String(entry.Location)}</span>
+            </div>
+          )}
+          {!!entry.Company_Name && (
+            <div className="flex flex-col">
+              <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>Company</span>
+              <span className="text-[11px]" style={{ color: "var(--text)" }}>{String(entry.Company_Name)}</span>
+            </div>
+          )}
+          {!!entry.Name_of_Enquirer && (
+            <div className="flex flex-col">
+              <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>Enquirer</span>
+              <span className="text-[11px]" style={{ color: "var(--text)" }}>{String(entry.Name_of_Enquirer)}</span>
+            </div>
+          )}
+          {!!entry.Mobile_Number && (
+            <div className="flex flex-col">
+              <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>Mobile</span>
+              <span className="text-[11px]" style={{ color: "var(--text)" }}>{String(entry.Mobile_Number)}</span>
+            </div>
+          )}
+          {!!entry.Email_Id && (
+            <div className="flex flex-col">
+              <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>Email</span>
+              <span className="text-[11px]" style={{ color: "var(--text)" }}>{String(entry.Email_Id)}</span>
+            </div>
+          )}
+          {!!entry.Sales_Person_Accountable && (
+            <div className="flex flex-col">
+              <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>Sales Person</span>
+              <span className="text-[11px]" style={{ color: "var(--text)" }}>{String(entry.Sales_Person_Accountable)}</span>
+            </div>
+          )}
+          {!!entry.Sales_Close_Date && (
+            <div className="flex flex-col">
+              <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>Sales Close Date</span>
+              <span className="text-[11px]" style={{ color: "var(--text)" }}>{formatDateOnly(String(entry.Sales_Close_Date))}</span>
             </div>
           )}
         </div>
-      )}
-
-      {stepNum === 5 && (
-        <div className="space-y-4">
-          <label className="flex items-center gap-2 p-3 rounded-lg cursor-pointer" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-            <input type="checkbox" checked={status === "Yes"} onChange={(e) => setStatus(e.target.checked ? "Yes" : "")} className="w-4 h-4" style={{ accentColor: "var(--primary)" }} />
-            <span className="text-xs font-semibold" style={{ color: "var(--text)" }}>I confirm acknowledgement is done</span>
-          </label>
-        </div>
-      )}
-
-      {stepNum === 6 && (
-        <div className="space-y-4">
-          <div>
-            <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>Status <span style={{ color: "var(--danger)" }}>*</span></label>
-            <div className="flex gap-2">
-              {["Yes", "No"].map((opt) => (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => setStatus(opt)}
-                  className="flex-1 py-3 rounded-md text-sm font-semibold transition-all cursor-pointer"
-                  style={{
-                    background: status === opt ? (opt === "Yes" ? "var(--success)" : "var(--warning)") : "var(--surface-2)",
-                    color: status === opt ? "white" : "var(--text)",
-                    border: "1px solid " + (status === opt ? "transparent" : "var(--border)"),
-                    opacity: status && status !== opt ? 0.5 : 1,
-                  }}
-                >
-                  {opt === "Yes" ? "✅ Yes - Inventory Available" : "⚠️ No - Need Purchase"}
-                </button>
-              ))}
-            </div>
-          </div>
-          {status === "No" && (
-            <div className="p-4 rounded-lg" style={{ background: "rgba(217,119,6,0.06)", border: "1px solid rgba(217,119,6,0.15)" }}>
-              <p className="text-xs mb-2" style={{ color: "var(--text-secondary)" }}>Please fill the Purchase Indent form:</p>
-              <a
-                href="https://script.google.com/a/macros/saraswateng.com/s/AKfycbykVvZUaUp4TMUs7QjEuMGEUazmeeIhNRAZsmScpJR5oTRFvJxVc7vXv1vu_AUVEeG3sw/exec?page=Form"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold text-white cursor-pointer"
-                style={{ background: "var(--primary)" }}
-              >
-                📋 Open Purchase Indent Form
-              </a>
-              <p className="text-[10px] mt-2" style={{ color: "var(--text-muted)" }}>After filling the form, come back and select &quot;Yes&quot;</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {stepNum === 7 && (
-        <div className="space-y-4">
-          <h4 className="text-xs font-bold" style={{ color: "var(--text)" }}>Invoice &amp; Quantity Verification</h4>
-
-          {/* Show previous partial submission history */}
-          {((): React.ReactNode => {
-            let existingInvoices: { batch: number; date: string; submittedBy: string; invoiceNo?: string; items: { itemName: string; quantityReceived: number; attachment: string; uploadedAt?: string }[] }[] = [];
-            try {
-              const invoicesStr = entry.Step_7_Invoices_JSON as string;
-              if (invoicesStr) existingInvoices = JSON.parse(invoicesStr);
-            } catch { /* ignore */ }
-
-            if (existingInvoices.length === 0) return null;
-
-            const historyTotals: Record<string, number> = {};
-            existingInvoices.forEach((batch) => {
-              (batch.items || []).forEach((item) => {
-                if (!historyTotals[item.itemName]) historyTotals[item.itemName] = 0;
-                historyTotals[item.itemName] += (item.quantityReceived || 0);
-              });
-            });
-
-            return (
-              <div className="mb-4 p-3 rounded-lg" style={{ background: "rgba(217,119,6,0.06)", border: "1px solid rgba(217,119,6,0.15)" }}>
-                <h5 className="text-[11px] font-bold mb-2" style={{ color: "#d97706" }}>{"📋 Previous Submissions (" + existingInvoices.length + " batch" + (existingInvoices.length > 1 ? "es" : "") + ")"}</h5>
-                {existingInvoices.map((batch, bIdx) => (
-                  <div key={bIdx} className="mb-2 p-2 rounded" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-                    <div className="text-[10px] font-semibold mb-1" style={{ color: "var(--text-muted)" }}>
-                      {"Batch " + batch.batch + " - "}<span style={{ color: "var(--text-secondary)" }}>{formatDate(batch.date)}</span>
-                      {batch.submittedBy && <span className="ml-2" style={{ color: "var(--text-faint)" }}>by {batch.submittedBy}</span>}
-                      {batch.invoiceNo && <span className="ml-2 font-bold" style={{ color: "var(--primary)" }}>Inv# {batch.invoiceNo}</span>}
-                    </div>
-                    {(batch.items || []).map((item, iIdx) => (
-                      <div key={iIdx} className="text-[10px] flex items-center flex-wrap gap-2 py-0.5" style={{ color: "var(--text)" }}>
-                        <span>{item.itemName + ": " + item.quantityReceived + " received"}</span>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-                <div className="mt-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
-                  <span className="text-[10px] font-bold" style={{ color: "var(--text-secondary)" }}>Total received so far:</span>
-                  {requirements.map((req, idx) => {
-                    const prevQty = historyTotals[req.itemName] || 0;
-                    const isItemMatched = prevQty >= req.quantity;
-                    return (
-                      <div key={idx} className="text-[10px]" style={{ color: isItemMatched ? "var(--success)" : "#d97706" }}>
-                        {req.itemName + ": " + prevQty + "/" + req.quantity + " " + req.unit + " " + (isItemMatched ? "✓" : "(" + (req.quantity - prevQty) + " remaining)")}
-                      </div>
-                    );
-                  })}
+        {/* Requirements */}
+        {requirements.length > 0 && (
+          <div className="pt-2 mt-1" style={{ borderTop: "1px solid var(--border)" }}>
+            <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>Requirements:</span>
+            <div className="mt-1 space-y-0.5">
+              {requirements.map((r, i) => (
+                <div key={i} className="text-[11px]" style={{ color: "var(--text)" }}>
+                  {r.itemName} — Qty: {r.quantity} {r.unit}
                 </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Step 7/8 Info Banner - Show remaining quantities info */}
+      {(stepNum === 7 || stepNum === 8) && requirements.length > 0 && (
+        <div className="mb-4 p-3 rounded-lg" style={{ background: "rgba(217,119,6,0.06)", border: "1px solid rgba(217,119,6,0.15)" }}>
+          <h4 className="text-[11px] font-bold mb-2" style={{ color: "#d97706" }}>
+            {stepNum === 7 ? "Invoice & Quantity Tracking" : "Dispatch - Quantity Status"}
+          </h4>
+          {(() => {
+            const totals = getHistoryTotals();
+            const allMatched = isFullyMatched();
+            return (
+              <div className="space-y-1">
+                {requirements.map((req, i) => {
+                  const received = totals[req.itemName] || 0;
+                  const remaining = Math.max(0, req.quantity - received);
+                  const isMatched = received >= req.quantity;
+                  return (
+                    <div key={i} className="flex items-center justify-between text-[10px]">
+                      <span style={{ color: "var(--text)" }}>{req.itemName}</span>
+                      <span style={{ color: isMatched ? "var(--success)" : "#d97706" }}>
+                        {received}/{req.quantity} {req.unit} {isMatched ? "✓ Matched" : `(${remaining} remaining)`}
+                      </span>
+                    </div>
+                  );
+                })}
+                {stepNum === 8 && !allMatched && (
+                  <div className="mt-2 p-2 rounded" style={{ background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.12)" }}>
+                    <p className="text-[10px] font-semibold" style={{ color: "var(--danger)" }}>
+                      ⚠️ Quantities not fully matched. After this dispatch is completed, the workflow will loop back to Step 7 for remaining quantities before proceeding to Step 9.
+                    </p>
+                  </div>
+                )}
+                {stepNum === 7 && allMatched && (
+                  <div className="mt-2 p-2 rounded" style={{ background: "rgba(5,150,105,0.06)", border: "1px solid rgba(5,150,105,0.12)" }}>
+                    <p className="text-[10px] font-semibold" style={{ color: "var(--success)" }}>
+                      ✅ All quantities fully matched! After dispatch (Step 8), workflow will proceed to Step 9.
+                    </p>
+                  </div>
+                )}
               </div>
             );
           })()}
 
-          {/* Invoice Number */}
-          <div>
-            <label className="block text-[11px] font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>Invoice Number <span style={{ color: "var(--danger)" }}>*</span></label>
-            <input
-              type="text"
-              placeholder="Enter invoice number"
-              value={invoiceNumber}
-              onChange={(e) => setInvoiceNumber(e.target.value)}
-              className="w-full px-3 py-2 rounded-md text-xs outline-none"
-              style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
-            />
-          </div>
-
-          {/* Item quantities */}
-          <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>Enter the quantity received for each item.</p>
-          <div className="space-y-3">
-            {requirements.map((req, idx) => {
-              const historyTotals = getHistoryTotals();
-              const previouslyReceived = historyTotals[req.itemName] || 0;
-              const currentInput = parseInt(invoiceEntries[idx]?.quantityReceived || "0");
-              const totalReceived = previouslyReceived + currentInput;
-              const matched = totalReceived >= req.quantity;
-              const remaining = req.quantity - totalReceived;
-
-              return (
-                <div key={idx} className="p-3 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid " + (matched ? "var(--success)" : "var(--border)") }}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold" style={{ color: "var(--text)" }}>{req.itemName}</span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded" style={{ background: matched ? "rgba(5,150,105,0.08)" : "rgba(217,119,6,0.08)", color: matched ? "var(--success)" : "var(--warning)" }}>
-                      {matched ? "✓ Matched" : (remaining + " remaining")}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                      {"Required: " + req.quantity + " " + req.unit + (previouslyReceived > 0 ? " (Already received: " + previouslyReceived + ")" : "")}
-                    </span>
-                    <input
-                      type="number"
-                      placeholder="Qty received"
-                      value={invoiceEntries[idx]?.quantityReceived || ""}
-                      onChange={(e) => {
-                        const updated = [...invoiceEntries];
-                        if (!updated[idx]) updated[idx] = { itemName: req.itemName, quantityReceived: "" };
-                        updated[idx].quantityReceived = e.target.value;
-                        setInvoiceEntries(updated);
-                      }}
-                      className="flex-1 px-2 py-1.5 rounded text-xs outline-none"
-                      style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Single invoice upload */}
-          <div>
-            <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>Upload Invoice</label>
-            <div
-              className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-all hover:shadow-md"
-              style={{ borderColor: attachment ? "var(--success)" : "var(--border)", background: attachment ? "rgba(5,150,105,0.04)" : "var(--surface-2)" }}
-              onClick={() => document.getElementById("file-step-7-invoice")?.click()}
-            >
-              <input type="file" id="file-step-7-invoice" className="hidden" onChange={handleFileChange} />
-              <div className="flex flex-col items-center gap-2">
-                <div style={{ color: attachment ? "var(--success)" : "var(--text-muted)" }}>
-                  <UploadIcon />
-                </div>
-                <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>{attachment ? "📎 " + attachment.name : "Click to upload invoice file"}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {stepNum === 8 && (
-        <div className="space-y-4">
-          {/* Show attachments from Step 7 with details */}
-          {((): React.ReactNode => {
-            let existingInvoices: { batch: number; date: string; submittedBy: string; items: { itemName: string; quantityReceived: number; totalQuantity: number; attachment: string }[] }[] = [];
+          {/* Show previous invoice submissions with attachments */}
+          {stepNum === 7 && (() => {
+            let invoices: { batch: number; date: string; submittedBy: string; invoiceNo?: string; items: { itemName: string; quantityReceived: number; totalQuantity: number; attachment: string; uploadedAt?: string }[] }[] = [];
             try {
-              const invoicesStr = entry.Step_7_Invoices_JSON as string;
-              if (invoicesStr) existingInvoices = JSON.parse(invoicesStr);
+              const invStr = entry.Step_7_Invoices_JSON as string;
+              if (invStr) invoices = JSON.parse(invStr);
             } catch { /* ignore */ }
-
-            const allItems: { itemName: string; quantityReceived: number; totalQuantity: number; attachment: string; batch: number; date: string }[] = [];
-            existingInvoices.forEach((batch) => {
-              (batch.items || []).forEach((item) => {
-                allItems.push({
-                  ...item,
-                  totalQuantity: item.totalQuantity || 0,
-                  batch: batch.batch,
-                  date: batch.date,
-                });
-              });
-            });
-
-            if (allItems.length === 0 && requirements.length === 0) return null;
-
+            if (invoices.length === 0) return null;
             return (
-              <div className="p-3 rounded-lg" style={{ background: "rgba(37,99,235,0.04)", border: "1px solid rgba(37,99,235,0.15)" }}>
-                <h4 className="text-xs font-bold mb-2 flex items-center gap-2" style={{ color: "var(--primary)" }}>
-                  📦 Received Items & Attachments (from Step 7)
-                </h4>
-                {allItems.length > 0 ? (
-                  <div className="space-y-2">
-                    {allItems.map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-2 rounded" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-                        <div className="flex-1">
-                          <div className="text-[11px] font-semibold" style={{ color: "var(--text)" }}>{item.itemName}</div>
-                          <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                            Qty: {item.quantityReceived} received (Batch {item.batch} - {formatDateOnly(item.date)})
-                          </div>
-                        </div>
+              <div className="mt-3 pt-2" style={{ borderTop: "1px solid rgba(217,119,6,0.15)" }}>
+                <h5 className="text-[10px] font-bold mb-1.5" style={{ color: "#92400e" }}>Previous Submissions:</h5>
+                {invoices.map((batch, bIdx) => (
+                  <div key={bIdx} className="mb-1.5 p-2 rounded" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                    <div className="text-[9px] font-semibold" style={{ color: "var(--text-faint)" }}>
+                      Batch {batch.batch} - {formatDate(batch.date)}
+                      {batch.invoiceNo && <span className="ml-2 font-bold" style={{ color: "var(--primary)" }}>Inv# {batch.invoiceNo}</span>}
+                    </div>
+                    {(batch.items || []).map((item, iIdx) => (
+                      <div key={iIdx} className="flex items-center flex-wrap gap-2 py-0.5 text-[10px]">
+                        <span style={{ color: "var(--text)" }}>{item.itemName}: {item.quantityReceived} received</span>
                         {item.attachment && (
                           <button
                             type="button"
-onClick={() => {
-  // Extract clean URL from the stored string
-  // Support both Cloudinary and Google Drive URLs
-  let cleanUrl = item.attachment;
-  const urlMatch = item.attachment.match(/https?:\/\/(res\.cloudinary\.com|drive\.google\.com|lh3\.googleusercontent\.com)[^\s\[\]]+/);
-  if (urlMatch) {
-    cleanUrl = urlMatch[0];
-  }
-  setSheetAttachmentUrl(cleanUrl);
-  setShowAttachmentSheet(true);
-}}
-
-                            className="text-[9px] px-2 py-1 rounded cursor-pointer font-semibold"
+                            onClick={() => {
+                              let cleanUrl = item.attachment;
+                              const urlMatch = item.attachment.match(/https?:\/\/(res\.cloudinary\.com|drive\.google\.com)[^\s[\]]+/);
+                              if (urlMatch) cleanUrl = urlMatch[0];
+                              setSheetAttachmentUrl(cleanUrl);
+                              setShowAttachmentSheet(true);
+                            }}
+                            className="text-[9px] px-1.5 py-0.5 rounded cursor-pointer font-semibold"
                             style={{ color: "var(--primary)", background: "var(--primary-bg)", border: "1px solid var(--primary)" }}
                           >
                             📎 View
@@ -855,175 +398,388 @@ onClick={() => {
                         )}
                       </div>
                     ))}
-                    <div className="text-[10px] mt-1 font-semibold" style={{ color: "var(--text-muted)" }}>
-                      Total items: {allItems.length} | Total batches: {existingInvoices.length}
-                    </div>
                   </div>
-                ) : (
-                  <div className="space-y-1">
-                    {requirements.map((req, idx) => (
-                      <div key={idx} className="text-[11px] py-1" style={{ color: "var(--text-secondary)" }}>
-                        {req.itemName + ": " + req.quantity + " " + req.unit}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                ))}
               </div>
             );
           })()}
+        </div>
+      )}
 
-          {/* Show Challan Number */}
-          {!!entry.Challan_Number && (
-            <div className="p-3 rounded-lg flex items-center gap-3" style={{ background: "rgba(5,150,105,0.06)", border: "1px solid rgba(5,150,105,0.15)" }}>
-              <span className="text-[11px] font-semibold" style={{ color: "var(--text-muted)" }}>Challan No:</span>
-              <span className="text-sm font-bold" style={{ color: "var(--success)" }}>{String(entry.Challan_Number)}</span>
-            </div>
-          )}
-
-          {/* Dispatch Mode */}
-          <div>
-            <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>Mode of Dispatch <span style={{ color: "var(--danger)" }}>*</span></label>
-            <select
-              value={dispatchMode}
-              onChange={(e) => setDispatchMode(e.target.value)}
-              className="w-full px-3 py-2 rounded-md text-xs outline-none cursor-pointer"
-              style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
-            >
-              <option value="">-- Select Mode --</option>
-              <option value="Transport">Transport</option>
-              <option value="Courier">Courier</option>
-              <option value="By Hand">By Hand</option>
-              <option value="Collect by Client">Collect by Client</option>
-              <option value="Porter">Porter</option>
-              <option value="Direct by Client">Direct by Client</option>
-            </select>
-          </div>
-
-          {dispatchMode && (
-            <div className="p-4 rounded-lg space-y-3" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-              <h4 className="text-xs font-bold" style={{ color: "var(--text)" }}>Dispatch Form</h4>
-              <InputField label="Name" value={dispatchName} onChange={setDispatchName} required />
-              <InputField label="Mob No" value={dispatchMobNo} onChange={setDispatchMobNo} type="tel" required />
-              <InputField label="Invoice/Challan No" value={invoiceChallanNo} onChange={setInvoiceChallanNo} required />
-              <div className="flex items-center gap-2.5 py-1">
-                <span className="text-[11px] font-semibold" style={{ color: "var(--text-muted)" }}>Gate Pass No:</span>
-                <span className="text-xs font-bold" style={{ color: "var(--primary)" }}>Auto-generated on submit</span>
+      <div className="space-y-4">
+        {/* Steps 1, 2, 5, 6, 9, 10 - Simple status selection */}
+        {(stepNum === 1 || stepNum === 2 || stepNum === 5 || stepNum === 6 || stepNum === 9 || stepNum === 10) && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                Status <span style={{ color: "var(--danger)" }}>*</span>
+              </label>
+              <div className="flex gap-2">
+                {["Yes", "No"].map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => setStatus(opt)}
+                    className="flex-1 py-3 rounded-md text-sm font-semibold transition-all cursor-pointer"
+                    style={{
+                      background: status === opt ? (opt === "Yes" ? "var(--success)" : "var(--danger)") : "var(--surface-2)",
+                      color: status === opt ? "white" : "var(--text)",
+                      border: "1px solid " + (status === opt ? "transparent" : "var(--border)"),
+                      opacity: status && status !== opt ? 0.5 : 1,
+                    }}
+                  >
+                    {opt === "Yes" ? "✅ Yes" : "❌ No"}
+                  </button>
+                ))}
               </div>
-              <InputField label="LR No" value={lrNo} onChange={setLrNo} required />
             </div>
-          )}
-        </div>
-      )}
 
-      {stepNum === 9 && (
-        <div className="space-y-4">
-          <label className="flex items-center gap-2 p-3 rounded-lg cursor-pointer" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-            <input type="checkbox" checked={status === "Yes"} onChange={(e) => setStatus(e.target.checked ? "Yes" : "")} className="w-4 h-4" style={{ accentColor: "var(--primary)" }} />
-            <span className="text-xs font-semibold" style={{ color: "var(--text)" }}>I confirm IMS Entry Outward is done</span>
-          </label>
-        </div>
-      )}
-
-      {stepNum === 10 && (
-        <div className="space-y-4">
-          <div className="p-3 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-              Reminder step. The planned date is calculated based on Step 9 actual date + Pay Terms from Step 4.
-            </p>
+            {/* Attachment (optional for these steps) */}
+            <div>
+              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                Attachment (optional)
+              </label>
+              <label
+                htmlFor={`file-step-${stepNum}`}
+                className="flex items-center justify-center p-4 rounded-lg cursor-pointer transition-all"
+                style={{ background: "var(--surface-2)", border: "2px dashed var(--border)" }}
+              >
+                <input type="file" id={`file-step-${stepNum}`} className="hidden" onChange={handleFileChange} />
+                <div className="flex flex-col items-center gap-2">
+                  <div style={{ color: attachment ? "var(--success)" : "var(--text-muted)" }}>
+                    <UploadIcon />
+                  </div>
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    {attachment ? `📎 ${attachment.name}` : "Click or tap to upload file"}
+                  </p>
+                </div>
+              </label>
+            </div>
           </div>
-          <label className="flex items-center gap-2 p-3 rounded-lg cursor-pointer" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-            <input type="checkbox" checked={status === "Yes"} onChange={(e) => setStatus(e.target.checked ? "Yes" : "")} className="w-4 h-4" style={{ accentColor: "var(--primary)" }} />
-            <span className="text-xs font-semibold" style={{ color: "var(--text)" }}>I confirm reminder is complete - Payment received</span>
-          </label>
-        </div>
-      )}
+        )}
 
-      {/* Remark */}
-      {[1, 2, 3, 4, 6, 8].includes(stepNum) && (
-        <div className="mt-4">
-          <label className="block text-[11px] font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>Remark (Optional)</label>
+        {/* Step 3 - Requires attachment */}
+        {stepNum === 3 && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                Attachment <span style={{ color: "var(--danger)" }}>*</span>
+              </label>
+              <label
+                htmlFor="file-step-3"
+                className="flex items-center justify-center p-4 rounded-lg cursor-pointer transition-all"
+                style={{ background: "var(--surface-2)", border: "2px dashed var(--border)" }}
+              >
+                <input type="file" id="file-step-3" className="hidden" onChange={handleFileChange} />
+                <div className="flex flex-col items-center gap-2">
+                  <div style={{ color: attachment ? "var(--success)" : "var(--text-muted)" }}>
+                    <UploadIcon />
+                  </div>
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    {attachment ? `📎 ${attachment.name}` : "Click or tap to upload file *"}
+                  </p>
+                </div>
+              </label>
+              {!attachment && (
+                <p className="mt-1 text-[11px]" style={{ color: "var(--danger)" }}>Attachment is required.</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                Status <span style={{ color: "var(--danger)" }}>*</span>
+              </label>
+              <div className="flex gap-2">
+                {["Yes", "No"].map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => setStatus(opt)}
+                    className="flex-1 py-3 rounded-md text-sm font-semibold transition-all cursor-pointer"
+                    style={{
+                      background: status === opt ? (opt === "Yes" ? "var(--success)" : "var(--danger)") : "var(--surface-2)",
+                      color: status === opt ? "white" : "var(--text)",
+                      border: "1px solid " + (status === opt ? "transparent" : "var(--border)"),
+                      opacity: status && status !== opt ? 0.5 : 1,
+                    }}
+                  >
+                    {opt === "Yes" ? "✅ Yes" : "❌ No"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Step 4 - PO Form */}
+        {stepNum === 4 && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                Status <span style={{ color: "var(--danger)" }}>*</span>
+              </label>
+              <div className="flex gap-2">
+                {["Yes", "No"].map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => setStatus(opt)}
+                    className="flex-1 py-3 rounded-md text-sm font-semibold transition-all cursor-pointer"
+                    style={{
+                      background: status === opt ? (opt === "Yes" ? "var(--success)" : "var(--danger)") : "var(--surface-2)",
+                      color: status === opt ? "white" : "var(--text)",
+                      border: "1px solid " + (status === opt ? "transparent" : "var(--border)"),
+                      opacity: status && status !== opt ? 0.5 : 1,
+                    }}
+                  >
+                    {opt === "Yes" ? "✅ Yes" : "❌ No"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {status === "Yes" && (
+              <div className="space-y-3 p-4 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+                <h4 className="text-[11px] font-bold" style={{ color: "var(--text)" }}>Purchase Order Details</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-semibold mb-1" style={{ color: "var(--text-muted)" }}>PO Number *</label>
+                    <input type="text" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} className="w-full px-3 py-2 rounded-md text-xs outline-none" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold mb-1" style={{ color: "var(--text-muted)" }}>Location</label>
+                    <input type="text" value={poLocation} onChange={(e) => setPoLocation(e.target.value)} className="w-full px-3 py-2 rounded-md text-xs outline-none" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold mb-1" style={{ color: "var(--text-muted)" }}>Q.No</label>
+                    <input type="text" value={qNo} onChange={(e) => setQNo(e.target.value)} className="w-full px-3 py-2 rounded-md text-xs outline-none" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold mb-1" style={{ color: "var(--text-muted)" }}>Delivery Date *</label>
+                    <input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} className="w-full px-3 py-2 rounded-md text-xs outline-none" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-[10px] font-semibold mb-1" style={{ color: "var(--text-muted)" }}>Payment Terms (days)</label>
+                    <input type="number" value={payTerms} onChange={(e) => setPayTerms(e.target.value)} className="w-full px-3 py-2 rounded-md text-xs outline-none" style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Attachment (optional) */}
+            <div>
+              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>Attachment (optional)</label>
+              <label htmlFor="file-step-4" className="flex items-center justify-center p-4 rounded-lg cursor-pointer transition-all" style={{ background: "var(--surface-2)", border: "2px dashed var(--border)" }}>
+                <input type="file" id="file-step-4" className="hidden" onChange={handleFileChange} />
+                <div className="flex flex-col items-center gap-2">
+                  <div style={{ color: attachment ? "var(--success)" : "var(--text-muted)" }}><UploadIcon /></div>
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>{attachment ? `📎 ${attachment.name}` : "Click or tap to upload file"}</p>
+                </div>
+              </label>
+            </div>
+          </div>
+        )}
+
+        {/* Step 7 - Invoice and E-Way Bill */}
+        {stepNum === 7 && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                Invoice Number <span style={{ color: "var(--danger)" }}>*</span>
+              </label>
+              <input
+                type="text"
+                value={invoiceNumber}
+                onChange={(e) => setInvoiceNumber(e.target.value)}
+                placeholder="Enter invoice number"
+                className="w-full px-3 py-2.5 rounded-md text-xs outline-none"
+                style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text)" }}
+              />
+            </div>
+
+            {/* Quantity entries per item */}
+            <div className="space-y-2">
+              <label className="block text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+                Quantity Received <span style={{ color: "var(--danger)" }}>*</span>
+              </label>
+              {invoiceEntries.map((ie, idx) => {
+                const req = requirements.find((r) => r.itemName === ie.itemName);
+                const totals = getHistoryTotals();
+                const previouslyReceived = totals[ie.itemName] || 0;
+                const totalRequired = req?.quantity || 0;
+                const remaining = Math.max(0, totalRequired - previouslyReceived);
+
+                return (
+                  <div key={idx} className="p-3 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-semibold" style={{ color: "var(--text)" }}>{ie.itemName}</span>
+                      <span className="text-[10px]" style={{ color: previouslyReceived >= totalRequired ? "var(--success)" : "#d97706" }}>
+                        {previouslyReceived}/{totalRequired} {req?.unit || ""} received
+                        {remaining > 0 && ` (${remaining} remaining)`}
+                      </span>
+                    </div>
+                    <input
+                      type="number"
+                      value={ie.quantityReceived}
+                      onChange={(e) => {
+                        const updated = [...invoiceEntries];
+                        updated[idx].quantityReceived = e.target.value;
+                        setInvoiceEntries(updated);
+                      }}
+                      placeholder={`Qty received this batch (max ${remaining})`}
+                      min="0"
+                      max={remaining}
+                      className="w-full px-3 py-2 rounded-md text-xs outline-none"
+                      style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Attachment - required for Step 7 */}
+            <div>
+              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                Invoice Attachment <span style={{ color: "var(--danger)" }}>*</span>
+              </label>
+              <label htmlFor="file-step-7" className="flex items-center justify-center p-4 rounded-lg cursor-pointer transition-all" style={{ background: "var(--surface-2)", border: "2px dashed var(--border)" }}>
+                <input type="file" id="file-step-7" className="hidden" onChange={handleFileChange} />
+                <div className="flex flex-col items-center gap-2">
+                  <div style={{ color: attachment ? "var(--success)" : "var(--text-muted)" }}><UploadIcon /></div>
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>{attachment ? `📎 ${attachment.name}` : "Click or tap to upload invoice file *"}</p>
+                </div>
+              </label>
+              {!attachment && (
+                <p className="mt-1 text-[11px]" style={{ color: "var(--danger)" }}>Attachment is required for invoice submission.</p>
+              )}
+            </div>
+
+            {/* Info about partial submission */}
+            {!isFullyMatched() && (
+              <div className="p-3 rounded-lg" style={{ background: "rgba(37,99,235,0.04)", border: "1px solid rgba(37,99,235,0.12)" }}>
+                <p className="text-[10px]" style={{ color: "var(--primary)" }}>
+                  <strong>Note:</strong> You can submit partial quantities. The workflow will move to Step 8 (Dispatch) for the received quantity. After dispatch, if there are remaining quantities, it will loop back here for the next batch.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Step 8 - Dispatch */}
+        {stepNum === 8 && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                Dispatch Mode <span style={{ color: "var(--danger)" }}>*</span>
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {["Transport", "Courier", "By Hand", "Collect by Client", "Porter", "Direct by Client"].map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setDispatchMode(mode)}
+                    className="py-2.5 px-3 rounded-md text-[11px] font-semibold transition-all cursor-pointer"
+                    style={{
+                      background: dispatchMode === mode ? "var(--primary)" : "var(--surface-2)",
+                      color: dispatchMode === mode ? "white" : "var(--text)",
+                      border: "1px solid " + (dispatchMode === mode ? "var(--primary)" : "var(--border)"),
+                    }}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-semibold mb-1" style={{ color: "var(--text-muted)" }}>Name *</label>
+                <input type="text" value={dispatchName} onChange={(e) => setDispatchName(e.target.value)} className="w-full px-3 py-2 rounded-md text-xs outline-none" style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text)" }} />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold mb-1" style={{ color: "var(--text-muted)" }}>Mobile No</label>
+                <input type="tel" value={dispatchMobNo} onChange={(e) => setDispatchMobNo(e.target.value)} className="w-full px-3 py-2 rounded-md text-xs outline-none" style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text)" }} />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold mb-1" style={{ color: "var(--text-muted)" }}>Invoice/Challan No *</label>
+                <input type="text" value={invoiceChallanNo} onChange={(e) => setInvoiceChallanNo(e.target.value)} className="w-full px-3 py-2 rounded-md text-xs outline-none" style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text)" }} />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold mb-1" style={{ color: "var(--text-muted)" }}>LR No</label>
+                <input type="text" value={lrNo} onChange={(e) => setLrNo(e.target.value)} className="w-full px-3 py-2 rounded-md text-xs outline-none" style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text)" }} />
+              </div>
+            </div>
+
+            {/* Attachment (optional for dispatch) */}
+            <div>
+              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>Attachment (optional)</label>
+              <label htmlFor="file-step-8" className="flex items-center justify-center p-4 rounded-lg cursor-pointer transition-all" style={{ background: "var(--surface-2)", border: "2px dashed var(--border)" }}>
+                <input type="file" id="file-step-8" className="hidden" onChange={handleFileChange} />
+                <div className="flex flex-col items-center gap-2">
+                  <div style={{ color: attachment ? "var(--success)" : "var(--text-muted)" }}><UploadIcon /></div>
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>{attachment ? `📎 ${attachment.name}` : "Click or tap to upload file"}</p>
+                </div>
+              </label>
+            </div>
+
+            {/* Warning about loop back */}
+            {!isFullyMatched() && (
+              <div className="p-3 rounded-lg" style={{ background: "rgba(220,38,38,0.04)", border: "1px solid rgba(220,38,38,0.12)" }}>
+                <p className="text-[10px] font-semibold" style={{ color: "var(--danger)" }}>
+                  ⚠️ <strong>Important:</strong> Quantities are not fully matched yet. After completing this dispatch, the workflow will return to Step 7 (Invoice) for the remaining quantities. Step 9 will NOT be unlocked until all quantities are matched and dispatched.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Remark (all steps) */}
+        <div>
+          <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>
+            Remark (optional)
+          </label>
           <textarea
             value={remark}
             onChange={(e) => setRemark(e.target.value)}
+            placeholder="Add any notes..."
             rows={2}
-            placeholder="Enter any remark..."
-            className="w-full px-3 py-2 rounded-md text-xs outline-none resize-y"
-            style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
+            className="w-full px-3 py-2.5 rounded-md text-xs outline-none resize-none"
+            style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text)" }}
           />
         </div>
-      )}
+      </div>
 
-      {/* Actions */}
-      <div className="flex gap-2 justify-end pt-4 mt-4" style={{ borderTop: "1px solid var(--border)" }}>
+      {/* Submit / Cancel buttons */}
+      <div className="flex gap-3 mt-6">
         <button
-          type="button"
           onClick={onCancel}
-          className="px-4 py-2 rounded-md text-xs font-semibold cursor-pointer"
-          style={{ background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+          disabled={submitting}
+          className="flex-1 py-3 rounded-lg text-xs font-semibold cursor-pointer transition-all"
+          style={{ background: "var(--surface-2)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
         >
           Cancel
         </button>
-        {stepNum === 7 ? (() => {
-          const historyTotals = getHistoryTotals();
-          const allMatched = requirements.every((req, idx) => {
-            const currentInput = parseInt(invoiceEntries[idx]?.quantityReceived || "0");
-            const prevReceived = historyTotals[req.itemName] || 0;
-            return (prevReceived + currentInput) >= req.quantity;
-          });
-          const totalReceivedQty = invoiceEntries.reduce((sum, ie) => sum + parseInt(ie.quantityReceived || "0"), 0) + Object.values(historyTotals).reduce((sum, v) => sum + v, 0);
-          const totalRequiredQty = requirements.reduce((sum, req) => sum + req.quantity, 0);
-
-          return allMatched ? (
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={submitting || uploadingFile}
-              className="px-4 py-2 rounded-md text-xs font-semibold text-white disabled:opacity-50 cursor-pointer"
-              style={{ background: "var(--success)" }}
-            >
-              {uploadingFile ? "Uploading..." : submitting ? "Submitting..." : "✅ Submit → Move to Step 8"}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={submitting || uploadingFile || invoiceEntries.every((ie) => parseInt(ie.quantityReceived || "0") === 0)}
-              className="px-4 py-2 rounded-md text-xs font-semibold text-white disabled:opacity-50 cursor-pointer"
-              style={{ background: "#d97706" }}
-            >
-              {uploadingFile ? "Uploading..." : submitting ? "Submitting..." : "📦 Submit Partial (" + totalReceivedQty + "/" + totalRequiredQty + " received)"}
-            </button>
-          );
-        })() : (
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={submitting || uploadingFile || (stepNum === 5 && status !== "Yes") || (stepNum === 9 && status !== "Yes") || (stepNum === 10 && status !== "Yes")}
-            className="px-4 py-2 rounded-md text-xs font-semibold text-white disabled:opacity-50 cursor-pointer"
-            style={{ background: "var(--success)" }}
-          >
-            {uploadingFile ? "Uploading file..." : submitting ? "Submitting..." : "Submit"}
-          </button>
-        )}
+        <button
+          onClick={handleSubmit}
+          disabled={!isValid || submitting || uploadingFile}
+          className="flex-1 py-3 rounded-lg text-xs font-bold text-white cursor-pointer transition-all flex items-center justify-center gap-2"
+          style={{
+            background: isValid ? "var(--success)" : "var(--surface-3)",
+            opacity: (!isValid || submitting) ? 0.6 : 1,
+          }}
+        >
+          {(submitting || uploadingFile) && <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+          {uploadingFile ? "Uploading..." : submitting ? "Submitting..." : "Submit Step"}
+        </button>
       </div>
 
-      {/* Attachment Sheet/Modal */}
+      {/* Attachment Preview Sheet */}
       {showAttachmentSheet && sheetAttachmentUrl && (
-        <div
-          className="fixed inset-0 z-[2000] flex items-center justify-center p-5"
-          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
-          onClick={(e) => { if (e.target === e.currentTarget) setShowAttachmentSheet(false); }}
-        >
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-5" style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }} onClick={(e) => { if (e.target === e.currentTarget) setShowAttachmentSheet(false); }}>
           <div className="w-full max-w-2xl max-h-[85vh] rounded-xl shadow-2xl overflow-hidden" style={{ background: "var(--surface)" }}>
             <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: "1px solid var(--border)" }}>
-              <h3 className="text-sm font-bold" style={{ color: "var(--text)" }}>📎 Attachment Preview</h3>
-              <button
-                onClick={() => setShowAttachmentSheet(false)}
-                className="w-7 h-7 rounded-full flex items-center justify-center text-sm cursor-pointer"
-                style={{ background: "var(--surface-2)", color: "var(--text-muted)" }}
-              >
-                ✕
-              </button>
+              <h3 className="text-sm font-bold" style={{ color: "var(--text)" }}>Attachment Preview</h3>
+              <button onClick={() => setShowAttachmentSheet(false)} className="w-7 h-7 rounded-full flex items-center justify-center text-sm cursor-pointer" style={{ background: "var(--surface-2)", color: "var(--text-muted)" }}>&#x2715;</button>
             </div>
             <div className="p-5 flex flex-col items-center gap-4">
               {sheetAttachmentUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i) ? (
@@ -1032,40 +788,14 @@ onClick={() => {
                 <iframe src={sheetAttachmentUrl} className="w-full h-[60vh] rounded-lg" title="PDF Preview" />
               ) : (
                 <div className="text-center py-8">
-                  <div className="text-4xl mb-3">📄</div>
                   <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>File preview not available for this type</p>
                 </div>
               )}
-              <a
-                href={sheetAttachmentUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-4 py-2 rounded-md text-xs font-semibold text-white cursor-pointer"
-                style={{ background: "var(--primary)" }}
-              >
-                🔗 Open in New Tab
-              </a>
+              <a href={sheetAttachmentUrl} target="_blank" rel="noopener noreferrer" className="px-4 py-2 rounded-md text-xs font-semibold text-white cursor-pointer" style={{ background: "var(--primary)" }}>Open in New Tab</a>
             </div>
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function InputField({ label, value, onChange, type = "text", required }: { label: string; value: string; onChange: (v: string) => void; type?: string; required?: boolean }) {
-  return (
-    <div>
-      <label className="block text-[11px] font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>
-        {label} {required && <span style={{ color: "var(--danger)" }}>*</span>}
-      </label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 rounded-md text-xs outline-none"
-        style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
-      />
     </div>
   );
 }
