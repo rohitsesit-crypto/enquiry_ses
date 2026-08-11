@@ -16,10 +16,18 @@ interface EnquiryFormProps {
   initialData?: Record<string, unknown>;
   onSubmit: (formData: Record<string, unknown>) => void | Promise<void>;
   onCancel: () => void;
+  officeAccess?: string;
 }
 
-export default function EnquiryForm({ salesPersons, companies, initialData, onSubmit, onCancel }: EnquiryFormProps) {
-  const [location, setLocation] = useState((initialData?.Location as string) || "");
+export default function EnquiryForm({ salesPersons, companies, initialData, onSubmit, onCancel, officeAccess }: EnquiryFormProps) {
+  // If officeAccess is Mumbai or Boisar (single office), auto-set location
+  const defaultLocation = (() => {
+    if (initialData?.Location) return initialData.Location as string;
+    if (officeAccess === "Mumbai") return "Mumbai";
+    if (officeAccess === "Boisar") return "Boisar";
+    return "";
+  })();
+  const [location, setLocation] = useState(defaultLocation);
   const [companyName, setCompanyName] = useState((initialData?.Company_Name as string) || "");
   const [nameOfEnquirer, setNameOfEnquirer] = useState((initialData?.Name_of_Enquirer as string) || "");
   const [mobileNumber, setMobileNumber] = useState(String(initialData?.Mobile_Number || ""));
