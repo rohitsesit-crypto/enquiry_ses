@@ -66,6 +66,7 @@ export async function getUserDashboardData(email: string) {
     assignedSteps: number[];
     canFillForm: boolean;
     canViewAllSteps: boolean;
+    officeAccess: string;
     stepNames: Record<string, string>;
     message?: string;
   }>('getUserDashboardData', { body: { email } });
@@ -137,7 +138,7 @@ export async function bulkAddUsers(adminEmail: string, users: { email: string; n
 export async function updateUserAccess(
   adminEmail: string,
   userEmail: string,
-  access: { assignedSteps: number[]; canFillForm: boolean; canViewAllSteps: boolean }
+  access: { assignedSteps: number[]; canFillForm: boolean; canViewAllSteps: boolean; officeAccess?: string }
 ) {
   return callApi<{ success: boolean; message?: string }>('updateUserAccess', {
     body: { adminEmail, userEmail, access },
