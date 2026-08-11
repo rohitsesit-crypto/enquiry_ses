@@ -30,6 +30,7 @@ function AdminDashboardContent() {
   const [editSteps, setEditSteps] = useState<number[]>([]);
   const [editCanFillForm, setEditCanFillForm] = useState(false);
   const [editCanViewAllSteps, setEditCanViewAllSteps] = useState(false);
+  const [editOfficeAccess, setEditOfficeAccess] = useState<string>("");
 
   const [generatedLink, setGeneratedLink] = useState("");
   const [addingUser, setAddingUser] = useState(false);
@@ -231,6 +232,7 @@ function AdminDashboardContent() {
         assignedSteps: editSteps,
         canFillForm: editCanFillForm,
         canViewAllSteps: editCanViewAllSteps,
+        officeAccess: editOfficeAccess,
       });
       if (result.success) {
         showToast("Access updated!", "success");
@@ -439,7 +441,7 @@ function AdminDashboardContent() {
             <div className="p-5 rounded-xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
               <h3 className="text-sm font-bold mb-4" style={{ color: "var(--text)" }}>All Users ({users.length})</h3>
               <p className="text-[11px] mb-3 p-2 rounded" style={{ color: "var(--text-muted)", background: "var(--surface-2)" }}>
-                &#x1F4A1; Use &quot;Access&quot; to set which steps a user can edit. Enable &quot;View + Edit&quot; to let the user see all steps while only editing their authorized ones. Without it, users only see their authorized steps.
+                &#x1F4A1; Use &quot;Access&quot; to set which steps a user can edit. Enable &quot;View + Edit&quot; to let the user see all steps while only editing their authorized ones. Without it, users only see their authorized steps. &quot;Office Access&quot; controls which office location tasks the user can see.
               </p>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
@@ -449,6 +451,7 @@ function AdminDashboardContent() {
                       <th className="text-left py-2 px-2 font-semibold" style={{ color: "var(--text-muted)" }}>Name</th>
                       <th className="text-left py-2 px-2 font-semibold" style={{ color: "var(--text-muted)" }}>Mobile</th>
                       <th className="text-left py-2 px-2 font-semibold" style={{ color: "var(--text-muted)" }}>Authorized Steps</th>
+                      <th className="text-left py-2 px-2 font-semibold" style={{ color: "var(--text-muted)" }}>Office Access</th>
                       <th className="text-left py-2 px-2 font-semibold" style={{ color: "var(--text-muted)" }}>Access</th>
                       <th className="text-left py-2 px-2 font-semibold" style={{ color: "var(--text-muted)" }}>Actions</th>
                     </tr>
@@ -458,6 +461,7 @@ function AdminDashboardContent() {
                       const stepsStr = String(user.assignedSteps || "");
                       const stepsArr = stepsStr ? stepsStr.split(",").map((s) => parseInt(s.trim())).filter((n) => !isNaN(n)) : [];
                       const hasViewAll = user.canViewAllSteps === true || user.canViewAllSteps === "TRUE" || user.canViewAllSteps === "true";
+                      const userOfficeAccess = String(user.officeAccess || "");
                       return (
                         <tr key={idx} style={{ borderBottom: "1px solid var(--border-light)" }}>
                           <td className="py-2 px-2" style={{ color: "var(--text)" }}>{String(user.email)}</td>
@@ -474,6 +478,15 @@ function AdminDashboardContent() {
                               </div>
                             ) : (
                               <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>None</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-2">
+                            {userOfficeAccess ? (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(124, 58, 237, 0.08)", color: "#7c3aed" }}>
+                                {userOfficeAccess}
+                              </span>
+                            ) : (
+                              <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>All</span>
                             )}
                           </td>
                           <td className="py-2 px-2">
@@ -494,6 +507,7 @@ function AdminDashboardContent() {
                                   setEditSteps(stepsArr);
                                   setEditCanFillForm(user.canFillForm === true || user.canFillForm === "TRUE" || user.canFillForm === "true");
                                   setEditCanViewAllSteps(hasViewAll);
+                                  setEditOfficeAccess(userOfficeAccess);
                                 }}
                                 className="px-3 py-1.5 rounded text-[10px] font-semibold cursor-pointer transition-all hover:opacity-90 active:scale-[0.97] text-white shadow-sm"
                                 style={{ background: "var(--primary)" }}
@@ -613,7 +627,11 @@ function AdminDashboardContent() {
         {activeTab === "holidays" && (
           <div className="space-y-6">
             {/* Info Banner */}
-            
+            <div className="p-4 rounded-xl" style={{ background: "rgba(37,99,235,0.04)", border: "1px solid rgba(37,99,235,0.12)" }}>
+              <p className="text-[11px]" style={{ color: "var(--primary)" }}>
+                <strong>ℹ️ How it works:</strong> Holiday dates and Sunday dates are fetched from the <strong>&quot;sunday&amp;holiday&quot;</strong> tab in Google Sheet. When a planned date is calculated for any step, it automatically skips these dates and moves to the next working day.
+              </p>
+            </div>
 
             {loadingHolidays ? (
               <div className="flex flex-col items-center gap-3 py-12">
@@ -639,7 +657,9 @@ function AdminDashboardContent() {
                       🔄 Refresh
                     </button>
                   </div>
-                  
+                  <p className="text-[10px] mb-3" style={{ color: "var(--text-muted)" }}>
+                    Source: Google Sheet → &quot;sunday&amp;holiday&quot; tab → Column A (dates from A2) &amp; Column B (reasons from B2)
+                  </p>
                   <div className="overflow-y-auto max-h-[400px]">
                     {holidaysData.holidays.length > 0 ? (
                       <table className="w-full text-xs">
@@ -676,7 +696,9 @@ function AdminDashboardContent() {
                       </span>
                     </h3>
                   </div>
-                 
+                  <p className="text-[10px] mb-3" style={{ color: "var(--text-muted)" }}>
+                    Source: Google Sheet → &quot;sunday&amp;holiday&quot; tab → Column D (dates from D3)
+                  </p>
                   <div className="overflow-y-auto max-h-[400px]">
                     {holidaysData.sundays.length > 0 ? (
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -710,7 +732,32 @@ function AdminDashboardContent() {
 
             <div className="mb-4 p-3 rounded-lg" style={{ background: "rgba(37,99,235,0.04)", border: "1px solid rgba(37,99,235,0.12)" }}>
               <p className="text-[11px]" style={{ color: "var(--primary)" }}>
-                <strong>How it works:</strong> Select the steps this user is authorized to edit/submit. By default, users can ONLY see their authorized steps. Enable &quot;View + Edit&quot; below to let them see ALL steps (read-only for non-authorized ones) while still only being able to edit their authorized steps.
+                <strong>How it works:</strong> Select the steps this user is authorized to edit/submit. By default, users can ONLY see their authorized steps. Enable &quot;View + Edit&quot; below to let them see ALL steps (read-only for non-authorized ones) while still only being able to edit their authorized steps. &quot;Office Access&quot; controls which office location tasks the user can see and fill forms for.
+              </p>
+            </div>
+
+            {/* Office Access */}
+            <div className="mb-4">
+              <label className="block text-[11px] font-semibold mb-2" style={{ color: "var(--text-secondary)" }}>Office Access</label>
+              <div className="flex gap-2 flex-wrap">
+                {["Mumbai", "Boisar", "Mumbai&Boisar"].map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => setEditOfficeAccess(editOfficeAccess === opt ? "" : opt)}
+                    className="px-3 py-2 rounded-md text-xs font-semibold transition-all cursor-pointer"
+                    style={{
+                      background: editOfficeAccess === opt ? "#7c3aed" : "var(--surface-2)",
+                      color: editOfficeAccess === opt ? "white" : "var(--text)",
+                      border: "1px solid " + (editOfficeAccess === opt ? "#7c3aed" : "var(--border)"),
+                    }}
+                  >
+                    {opt === "Mumbai&Boisar" ? "Mumbai & Boisar" : opt}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] mt-1.5" style={{ color: "var(--text-muted)" }}>
+                {editOfficeAccess ? `User will see only "${editOfficeAccess}" office tasks and fill forms with that office location.` : "No restriction - user can see all office tasks."}
               </p>
             </div>
 
