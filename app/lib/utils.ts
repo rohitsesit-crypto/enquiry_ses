@@ -38,24 +38,35 @@ function parseDate(input: string | Date | null): Date {
   const str = String(input ?? '').trim();
   if (!str) return new Date(NaN);
 
-  // 1) Day-first numeric: DD-MM-YYYY [HH:MM[:SS] [AM|PM]]
+  // 1) Numeric date: detect separator to determine format
+  // Dash (-) or dot (.) separator = DD-MM-YYYY (Indian/Asian format)
+  // Slash (/) separator = MM/DD/YYYY (US format from Google Sheets auto-format)
   const numeric = str.match(
-    /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?:[\sT,]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?)?$/i
+    /^(\d{1,2})([-/.])(\d{1,2})[-/.](\d{4})(?:[\sT,]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?)?$/i
   );
   if (numeric) {
-    const [, day, month, year, hours, minutes, seconds, ampm] = numeric;
-    const dayNum = parseInt(day);
-    const monthNum = parseInt(month);
+    const [, part1, separator, part2, year, hours, minutes, seconds, ampm] = numeric;
+    const num1 = parseInt(part1);
+    const num2 = parseInt(part2);
     
-    // Heuristic: if day > 12, it's definitely DD-MM-YYYY
-    // If month > 12, it's definitely MM-DD-YYYY (US format from Sheets)
-    let finalDay = dayNum;
-    let finalMonth = monthNum - 1;
+    let finalDay: number;
+    let finalMonth: number;
     
-    if (monthNum > 12) {
-      // This is DD-MM-YYYY but month value > 12 means it's actually MM/DD/YYYY
-      finalDay = monthNum;
-      finalMonth = dayNum - 1;
+    if (separator === '/') {
+      // Slash = US format: MM/DD/YYYY
+      finalMonth = num1 - 1;
+      finalDay = num2;
+    } else {
+      // Dash or dot = Indian format: DD-MM-YYYY
+      finalDay = num1;
+      finalMonth = num2 - 1;
+    }
+    
+    // Safety: if month > 11 after conversion, swap (handles edge cases)
+    if (finalMonth > 11) {
+      const temp = finalDay;
+      finalDay = finalMonth + 1;
+      finalMonth = temp - 1;
     }
     
     return new Date(
