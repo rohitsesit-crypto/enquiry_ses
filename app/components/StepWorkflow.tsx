@@ -2,8 +2,12 @@
 
 import React, { useState, useEffect } from "react";
 import { STEP_NAMES } from "../lib/types";
-import { formatDate, formatDateOnly, formatStorageDate, formatStorageTimestamp, toInputDate } from "../lib/utils";
+import { formatDate, formatSheetDateOnly, formatStorageDate, formatStorageTimestamp, toInputDate } from "../lib/utils";
 import { uploadToDrive } from "../lib/driveUpload";
+
+/** Purchase Indent form opened when Step 6 inventory is not available */
+const PURCHASE_INDENT_FORM_URL =
+  "https://script.google.com/a/macros/saraswateng.com/s/AKfycbykVvZUaUp4TMUs7QjEuMGEUazmeeIhNRAZsmScpJR5oTRFvJxVc7vXv1vu_AUVEeG3sw/exec?page=Form";
 
 interface StepWorkflowProps {
   entry: Record<string, unknown>;
@@ -199,7 +203,11 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
 
   // Validation
   const isValid = (() => {
-    if (stepNum === 1 || stepNum === 2 || stepNum === 5 || stepNum === 6 || stepNum === 9 || stepNum === 10) {
+    // Step 6: only "Yes" can be submitted. "No" sends the user to the Purchase Indent form.
+    if (stepNum === 6) {
+      return status === "Yes";
+    }
+    if (stepNum === 1 || stepNum === 2 || stepNum === 5 || stepNum === 9 || stepNum === 10) {
       return !!status;
     }
     if (stepNum === 3) {
@@ -251,7 +259,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
           {!!entry.Timestamp && (
             <div className="flex flex-col">
               <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>Date</span>
-              <span className="text-[11px]" style={{ color: "var(--text)" }}>{formatDateOnly(String(entry.Timestamp))}</span>
+              <span className="text-[11px]" style={{ color: "var(--text)" }}>{formatSheetDateOnly(entry.Timestamp)}</span>
             </div>
           )}
           {!!entry.Submitted_By && (
@@ -299,7 +307,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
           {!!entry.Sales_Close_Date && (
             <div className="flex flex-col">
               <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>Sales Close Date</span>
-              <span className="text-[11px]" style={{ color: "var(--text)" }}>{formatDateOnly(String(entry.Sales_Close_Date))}</span>
+              <span className="text-[11px]" style={{ color: "var(--text)" }}>{formatSheetDateOnly(entry.Sales_Close_Date)}</span>
             </div>
           )}
         </div>
@@ -434,27 +442,47 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
               </div>
             </div>
 
-            {/* Attachment (optional for these steps) */}
-            <div>
-              <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>
-                Attachment (optional)
-              </label>
-              <label
-                htmlFor={`file-step-${stepNum}`}
-                className="flex items-center justify-center p-4 rounded-lg cursor-pointer transition-all"
-                style={{ background: "var(--surface-2)", border: "2px dashed var(--border)" }}
-              >
-                <input type="file" id={`file-step-${stepNum}`} className="hidden" onChange={handleFileChange} />
-                <div className="flex flex-col items-center gap-2">
-                  <div style={{ color: attachment ? "var(--success)" : "var(--text-muted)" }}>
-                    <UploadIcon />
+            {/* Attachment (optional) - Step 6 has no attachment */}
+            {stepNum !== 6 && (
+              <div>
+                <label className="block text-[11px] font-semibold mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                  Attachment (optional)
+                </label>
+                <label
+                  htmlFor={`file-step-${stepNum}`}
+                  className="flex items-center justify-center p-4 rounded-lg cursor-pointer transition-all"
+                  style={{ background: "var(--surface-2)", border: "2px dashed var(--border)" }}
+                >
+                  <input type="file" id={`file-step-${stepNum}`} className="hidden" onChange={handleFileChange} />
+                  <div className="flex flex-col items-center gap-2">
+                    <div style={{ color: attachment ? "var(--success)" : "var(--text-muted)" }}>
+                      <UploadIcon />
+                    </div>
+                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      {attachment ? `📎 ${attachment.name}` : "Click or tap to upload file"}
+                    </p>
                   </div>
-                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {attachment ? `📎 ${attachment.name}` : "Click or tap to upload file"}
-                  </p>
-                </div>
-              </label>
-            </div>
+                </label>
+              </div>
+            )}
+
+            {/* Step 6 - No: only the Purchase Indent form, no submit */}
+            {stepNum === 6 && status === "No" && (
+              <div className="p-3 rounded-lg space-y-2.5" style={{ background: "rgba(220,38,38,0.04)", border: "1px solid rgba(220,38,38,0.12)" }}>
+                <p className="text-[11px] font-semibold" style={{ color: "var(--danger)" }}>
+                  Inventory not available. Fill the Purchase Indent form first, then come back and select Yes to submit this step.
+                </p>
+                <a
+                  href={PURCHASE_INDENT_FORM_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center w-full py-3 rounded-md text-xs font-bold text-white cursor-pointer"
+                  style={{ background: "var(--primary)" }}
+                >
+                  Go to Purchase Indent Form
+                </a>
+              </div>
+            )}
           </div>
         )}
 
@@ -759,18 +787,20 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
         >
           Cancel
         </button>
-        <button
-          onClick={handleSubmit}
-          disabled={!isValid || submitting || uploadingFile}
-          className="flex-1 py-3 rounded-lg text-xs font-bold text-white cursor-pointer transition-all flex items-center justify-center gap-2"
-          style={{
-            background: isValid ? "var(--success)" : "var(--surface-3)",
-            opacity: (!isValid || submitting) ? 0.6 : 1,
-          }}
-        >
-          {(submitting || uploadingFile) && <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-          {uploadingFile ? "Uploading..." : submitting ? "Submitting..." : "Submit Step"}
-        </button>
+        {!(stepNum === 6 && status === "No") && (
+          <button
+            onClick={handleSubmit}
+            disabled={!isValid || submitting || uploadingFile}
+            className="flex-1 py-3 rounded-lg text-xs font-bold text-white cursor-pointer transition-all flex items-center justify-center gap-2"
+            style={{
+              background: isValid ? "var(--success)" : "var(--surface-3)",
+              opacity: (!isValid || submitting) ? 0.6 : 1,
+            }}
+          >
+            {(submitting || uploadingFile) && <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+            {uploadingFile ? "Uploading..." : submitting ? "Submitting..." : "Submit Step"}
+          </button>
+        )}
       </div>
 
       {/* Attachment Preview Sheet */}
