@@ -38,29 +38,25 @@ function parseDate(input: string | Date | null): Date {
   const str = String(input ?? '').trim();
   if (!str) return new Date(NaN);
 
-  // 1) Numeric date: detect separator to determine format
-  // Dash (-) or dot (.) separator = DD-MM-YYYY (Indian/Asian format)
-  // Slash (/) separator = MM/DD/YYYY (US format from Google Sheets auto-format)
+  // 1) Numeric date: always DD-MM-YYYY (Indian/Asian format)
+  // The backend stores all dates as DD-MM-YYYY. Google Sheets may auto-convert
+  // separators (dash/slash/dot) but the order remains Day-Month-Year.
   const numeric = str.match(
     /^(\d{1,2})([-/.])(\d{1,2})[-/.](\d{4})(?:[\sT,]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?)?$/i
   );
   if (numeric) {
-    const [, part1, separator, part2, year, hours, minutes, seconds, ampm] = numeric;
+    const [, part1, , part2, year, hours, minutes, seconds, ampm] = numeric;
     const num1 = parseInt(part1);
     const num2 = parseInt(part2);
     
     let finalDay: number;
     let finalMonth: number;
     
-    if (separator === '/') {
-      // Slash = US format: MM/DD/YYYY
-      finalMonth = num1 - 1;
-      finalDay = num2;
-    } else {
-      // Dash or dot = Indian format: DD-MM-YYYY
-      finalDay = num1;
-      finalMonth = num2 - 1;
-    }
+    // Always treat as DD-MM-YYYY (Indian format) regardless of separator.
+    // The backend (Google Apps Script) stores all dates as DD-MM-YYYY.
+    // Google Sheets may auto-convert dashes to slashes but keeps DD/MM/YYYY order.
+    finalDay = num1;
+    finalMonth = num2 - 1;
     
     // Safety: if month > 11 after conversion, swap (handles edge cases)
     if (finalMonth > 11) {
@@ -124,6 +120,52 @@ export function formatDateOnly(date: Date | string | null): string {
   const d = parseDate(date);
   if (isNaN(d.getTime())) return '';
   return `${String(d.getDate()).padStart(2, '0')} ${MONTH_SHORT[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+/**
+ * Renders a sheet value EXACTLY as it is written in the Google Sheet,
+ * without any locale / timezone re-interpretation.
+ *
+ *   "10-08-2026 05:48:46 PM"      -> "10 Aug 2026"   (day-first, read literally)
+ *   "10/08/2026"                  -> "10 Aug 2026"
+ *   "2026-08-10T12:18:46.000Z"    -> "10 Aug 2026"   (ISO parts read literally, no TZ shift)
+ *
+ * Used for form-submission Timestamp and Sales_Close_Date so the UI always
+ * mirrors the sheet text instead of guessing DD/MM vs MM/DD.
+ */
+export function formatSheetDateOnly(value: unknown): string {
+  const str = normalizeString(value);
+  if (!str) return '';
+
+  // ISO-like value (YYYY-MM-DD...) -> take parts literally, never via Date()
+  const iso = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) {
+    const year = parseInt(iso[1]);
+    const monthIdx = parseInt(iso[2]) - 1;
+    const day = parseInt(iso[3]);
+    if (monthIdx >= 0 && monthIdx <= 11) {
+      return `${String(day).padStart(2, '0')} ${MONTH_SHORT[monthIdx]} ${year}`;
+    }
+  }
+
+  // Day-first numeric value as stored/displayed by the sheet: DD-MM-YYYY
+  const dayFirst = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+  if (dayFirst) {
+    let day = parseInt(dayFirst[1]);
+    let month = parseInt(dayFirst[2]);
+    const year = parseInt(dayFirst[3]);
+    // Only swap when the second part cannot be a month (e.g. 08-25-2026)
+    if (month > 12 && day <= 12) {
+      const tmp = day;
+      day = month;
+      month = tmp;
+    }
+    if (month >= 1 && month <= 12) {
+      return `${String(day).padStart(2, '0')} ${MONTH_SHORT[month - 1]} ${year}`;
+    }
+  }
+
+  return formatDateOnly(str);
 }
 
 /** UI date + time: 28 Jul 2026 03:45 PM */
