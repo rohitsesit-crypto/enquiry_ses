@@ -98,7 +98,7 @@ export const STEP_NAMES: Record<number, string> = {
   1: 'Quotation',
   2: 'Follow Up 1',
   3: 'Follow Up 2',
-  4: 'Purchase Date',
+  4: 'Purchase Order Received',
   5: 'Acknowledgement',
   6: 'Inventory Check',
   7: 'Invoice and E-Way Bill',
