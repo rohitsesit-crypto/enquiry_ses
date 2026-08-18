@@ -168,6 +168,48 @@ export function formatSheetDateOnly(value: unknown): string {
   return formatDateOnly(str);
 }
 
+/**
+ * Form submission timestamp format: DD-MM-YYYY (e.g. 12-08-2026).
+ *
+ * Used ONLY for the enquiry form submission timestamp, which must never be
+ * rendered with a month name (e.g. "01 Jan 2026"). The sheet value is read
+ * literally so there is no timezone / day-month re-interpretation.
+ */
+export function formatFormTimestamp(value: unknown): string {
+  const str = normalizeString(value);
+  if (!str) return '';
+
+  // ISO-like value (YYYY-MM-DD...) -> read parts literally
+  const iso = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) {
+    const year = parseInt(iso[1]);
+    const month = parseInt(iso[2]);
+    const day = parseInt(iso[3]);
+    if (month >= 1 && month <= 12) {
+      return `${String(day).padStart(2, '0')}-${String(month).padStart(2, '0')}-${year}`;
+    }
+  }
+
+  // Day-first numeric value as stored by the sheet: DD-MM-YYYY [time]
+  const dayFirst = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+  if (dayFirst) {
+    let day = parseInt(dayFirst[1]);
+    let month = parseInt(dayFirst[2]);
+    const year = parseInt(dayFirst[3]);
+    // Only swap when the second part cannot be a month (e.g. 08-25-2026)
+    if (month > 12 && day <= 12) {
+      const tmp = day;
+      day = month;
+      month = tmp;
+    }
+    if (month >= 1 && month <= 12) {
+      return `${String(day).padStart(2, '0')}-${String(month).padStart(2, '0')}-${year}`;
+    }
+  }
+
+  return formatStorageDate(str);
+}
+
 /** UI date + time: 28 Jul 2026 03:45 PM */
 export function formatDate(date: Date | string | null): string {
   if (!date) return '';
@@ -449,6 +491,17 @@ export function normalizeEntry(entry: Record<string, unknown>): Record<string, u
 
   // Normalize Step 7 Invoice fields
   normalized.Step_7_Invoices_JSON = normalizeString(entry.Step_7_Invoices_JSON);
+
+  // Normalize partial submission Parts JSON for steps 7, 8, 9, 10
+  [7, 8, 9, 10].forEach((s) => {
+    const partsKey = `Step_${s}_Parts_JSON`;
+    const raw = entry[partsKey];
+    if (Array.isArray(raw)) {
+      normalized[partsKey] = JSON.stringify(raw);
+    } else {
+      normalized[partsKey] = normalizeString(raw) || '[]';
+    }
+  });
 
   // Normalize Step 8 Dispatch fields
   normalized.Step_8_Dispatch_Mode = normalizeString(entry.Step_8_Dispatch_Mode);
