@@ -1,23 +1,4 @@
-// =============================================================================
-// app/components/StepWorkflow.tsx   (REPLACE THE WHOLE FILE)
-// =============================================================================
-// CHANGE 1
-//   Step 7 : while typing the quantity, every item now shows a LIVE line
-//            "Entered X · Y remaining"  or  "Matched · full quantity entered",
-//            plus a total "Total entered X / Y — Matched / Z remaining" banner.
-//   Step 8 : the quantity is NO LONGER editable. It is locked to exactly the
-//            quantity that was entered/released in Step 7 and is only DISPLAYED.
-//
-// CHANGE 2
-//   Step 7 : the submission now also sends `step7InvoiceLog`
-//              { Entry_ID, Invoice_No, Timestamp, Attachment_URL }
-//            with Timestamp formatted as  08-08-2026 5:09:21 PM
-//            so the backend can append one row to the Google Sheet tab
-//            "Step 7 Invoice Attchment".
-//            (see apps-script-step7-invoice-log.gs)
-//
-// Nothing else in the step logic was changed.
-// =============================================================================
+
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
