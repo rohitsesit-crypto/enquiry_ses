@@ -1,5 +1,6 @@
 "use client";
-
+import FormSubmissionsModule from "../components/FormSubmissionsModule";
+import { parseStepList, ALL_STEPS, readUserAccess } from "../lib/accessControl";
 import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { getAdminData, addUser, bulkAddUsers, updateUserAccess, addSalesPerson, removeSalesPerson, generateUserLink, getHolidaysAndSundays } from "../lib/api";
@@ -7,6 +8,21 @@ import { STEP_NAMES } from "../lib/types";
 import type { SyncState, SyncNotification, HolidayEntry } from "../lib/types";
 import { createSyncManager, DataSyncManager } from "../lib/dataSync";
 import { formatRelativeTime } from "../lib/utils";
+import { StepAccessCell, OfficeAccessCell, AccessFlagsCell } from "../components/UserAccessCells";
+
+// =============================================================================
+// CHANGE 3
+//  1) The per-user "Generate Link" button is BACK in the Actions column.
+//  2) Step access now supports three real states, chosen independently:
+//         Edit only  |  View only  |  Both (Edit + View)
+//     The View checkbox is no longer disabled when Edit is ticked, so a step can
+//     be Edit only, View only, or Both, and the saved View list keeps the
+//     "Both" steps as well.
+//  3) When the Access modal opens, Office Access and the raw View list are also
+//     loaded from the user row (previously Office Access stayed empty).
+// =============================================================================
+
+type StepMode = "edit" | "view" | "both" | "hidden";
 
 function AdminDashboardContent() {
   const searchParams = useSearchParams();
@@ -16,7 +32,8 @@ function AdminDashboardContent() {
   const [authenticated, setAuthenticated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [adminData, setAdminData] = useState<Record<string, unknown> | null>(null);
-  const [activeTab, setActiveTab] = useState<"users" | "sales" | "entries" | "holidays">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "sales" | "entries" | "forms" | "holidays">("users");
+
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
   const [newUserEmail, setNewUserEmail] = useState("");
@@ -31,6 +48,7 @@ function AdminDashboardContent() {
   const [editCanFillForm, setEditCanFillForm] = useState(false);
   const [editCanViewAllSteps, setEditCanViewAllSteps] = useState(false);
   const [editOfficeAccess, setEditOfficeAccess] = useState<string>("");
+  const [editViewSteps, setEditViewSteps] = useState<number[]>([]);
 
   const [generatedLink, setGeneratedLink] = useState("");
   const [addingUser, setAddingUser] = useState(false);
@@ -53,20 +71,18 @@ function AdminDashboardContent() {
   });
   const [syncNotifications, setSyncNotifications] = useState<SyncNotification[]>([]);
   const syncManagerRef = useRef<DataSyncManager | null>(null);
-  const [, setTick] = useState(0); // Force re-render for relative time updates
+  const [, setTick] = useState(0);
 
   const showToast = (message: string, type: "success" | "error" | "info") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   };
 
-  // Update relative time display every 10 seconds
   useEffect(() => {
     const interval = setInterval(() => setTick((t) => t + 1), 10000);
     return () => clearInterval(interval);
   }, []);
 
-  // Initialize real-time sync after authentication
   useEffect(() => {
     if (!authenticated || !email) return;
 
@@ -77,7 +93,7 @@ function AdminDashboardContent() {
       },
       onNotification: (notification) => {
         setSyncNotifications((prev) => [notification, ...prev].slice(0, 10));
-        showToast(`🔄 ${notification.message}`, "info");
+        showToast("Sync: " + notification.message, "info");
       },
       onError: (error) => {
         console.error("Sync error:", error);
@@ -86,7 +102,7 @@ function AdminDashboardContent() {
         setSyncState(state);
       },
       config: {
-        pollInterval: 5000, // 5 seconds
+        pollInterval: 5000,
         showNotifications: true,
         maxNotifications: 10,
         enabled: true,
@@ -156,7 +172,6 @@ function AdminDashboardContent() {
     }
   }, []);
 
-  // Load holidays when holidays tab is selected
   useEffect(() => {
     if (activeTab === "holidays" && authenticated && holidaysData.holidays.length === 0 && holidaysData.sundays.length === 0) {
       loadHolidaysData();
@@ -230,6 +245,9 @@ function AdminDashboardContent() {
     try {
       const result = await updateUserAccess(email, editingUser.email as string, {
         assignedSteps: editSteps,
+        // "Both" steps stay in the view list too, so Edit / View / Both are all
+        // persisted exactly as selected
+        viewSteps: editViewSteps,
         canFillForm: editCanFillForm,
         canViewAllSteps: editCanViewAllSteps,
         officeAccess: editOfficeAccess,
@@ -300,11 +318,60 @@ function AdminDashboardContent() {
     }
   };
 
+  /** Opens the Access modal with every current value of the user row */
+  const openAccessModal = (user: Record<string, unknown>) => {
+    const access = readUserAccess(user);
+    const rawViewSteps = parseStepList(
+      user.viewStepsList !== undefined ? user.viewStepsList : user.viewSteps
+    );
+    setEditingUser(user);
+    setEditSteps(access.assignedSteps);
+    setEditViewSteps(rawViewSteps);
+    setEditCanFillForm(access.canFillForm);
+    setEditCanViewAllSteps(access.canViewAllSteps);
+    setEditOfficeAccess(access.officeAccess);
+  };
+
   const handleSelectAllSteps = () => {
-    if (editSteps.length === 10) {
-      setEditSteps([]);
+    setEditSteps(editSteps.length === 10 ? [] : [...ALL_STEPS]);
+  };
+
+  const handleSelectAllViewSteps = () => {
+    setEditViewSteps(editViewSteps.length === 10 ? [] : [...ALL_STEPS]);
+  };
+
+  const handleSelectAllBoth = () => {
+    const allBoth = editSteps.length === 10 && editViewSteps.length === 10;
+    setEditSteps(allBoth ? [] : [...ALL_STEPS]);
+    setEditViewSteps(allBoth ? [] : [...ALL_STEPS]);
+  };
+
+  /** Current mode of a step inside the modal */
+  const getStepMode = (step: number): StepMode => {
+    const canEdit = editSteps.includes(step);
+    const canView = editViewSteps.includes(step);
+    if (canEdit && canView) return "both";
+    if (canEdit) return "edit";
+    if (canView) return "view";
+    return "hidden";
+  };
+
+  /** One-click state per step: Edit only / View only / Both / Hidden */
+  const setStepMode = (step: number, mode: StepMode) => {
+    const withoutEdit = editSteps.filter((x) => x !== step);
+    const withoutView = editViewSteps.filter((x) => x !== step);
+    if (mode === "edit") {
+      setEditSteps([...withoutEdit, step]);
+      setEditViewSteps(withoutView);
+    } else if (mode === "view") {
+      setEditSteps(withoutEdit);
+      setEditViewSteps([...withoutView, step]);
+    } else if (mode === "both") {
+      setEditSteps([...withoutEdit, step]);
+      setEditViewSteps([...withoutView, step]);
     } else {
-      setEditSteps([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+      setEditSteps(withoutEdit);
+      setEditViewSteps(withoutView);
     }
   };
 
@@ -374,7 +441,6 @@ function AdminDashboardContent() {
           <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>Enquiry Capture O2D</p>
         </div>
         <div className="ml-auto flex items-center gap-3">
-          {/* Real-time Sync Indicator */}
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
             <div className="flex items-center gap-1.5">
               <div
@@ -398,15 +464,15 @@ function AdminDashboardContent() {
               style={{ background: "var(--surface-3)", color: "var(--text-muted)" }}
               title="Force refresh from Google Sheet"
             >
-              🔄
+              R
             </button>
           </div>
           <div className="text-xs" style={{ color: "var(--text-muted)" }}>{email}</div>
         </div>
       </header>
 
-      <div className="flex gap-1 px-6 pt-4" style={{ borderBottom: "1px solid var(--border)" }}>
-        {(["users", "sales", "entries", "holidays"] as const).map((tab) => (
+      <div className="flex gap-1 px-6 pt-4 flex-wrap" style={{ borderBottom: "1px solid var(--border)" }}>
+        {(["users", "sales", "entries", "forms", "holidays"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -417,7 +483,15 @@ function AdminDashboardContent() {
               borderBottom: activeTab === tab ? "2px solid var(--primary)" : "2px solid transparent",
             }}
           >
-            {tab === "users" ? "Users (" + users.length + ")" : tab === "sales" ? "Sales Persons (" + salesPersons.length + ")" : tab === "entries" ? "Entries (" + entries.length + ")" : "Holidays & Sundays"}
+            {tab === "users"
+              ? "Users (" + users.length + ")"
+              : tab === "sales"
+              ? "Sales Persons (" + salesPersons.length + ")"
+              : tab === "entries"
+              ? "Entries (" + entries.length + ")"
+              : tab === "forms"
+              ? "Form (" + entries.length + ")"
+              : "Holidays & Sundays"}
           </button>
         ))}
       </div>
@@ -439,9 +513,36 @@ function AdminDashboardContent() {
             </div>
 
             <div className="p-5 rounded-xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+              <h3 className="text-sm font-bold mb-4" style={{ color: "var(--text)" }}>Bulk Add Users (CSV)</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(e) => setBulkFile(e.target.files?.[0] || null)}
+                  className="text-xs"
+                  style={{ color: "var(--text-muted)" }}
+                />
+                <button
+                  onClick={handleBulkUpload}
+                  disabled={!bulkFile || bulkUploading}
+                  className="px-4 py-2 rounded-md text-xs font-semibold text-white cursor-pointer flex items-center gap-1.5"
+                  style={{ background: "var(--primary)", opacity: !bulkFile || bulkUploading ? 0.6 : 1 }}
+                >
+                  {bulkUploading && <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+                  {bulkUploading ? "Uploading..." : "Upload CSV"}
+                </button>
+              </div>
+              <p className="text-[10px] mt-2" style={{ color: "var(--text-muted)" }}>
+                CSV columns: Email, Name, Mobile (first row is treated as the header).
+              </p>
+            </div>
+
+            <div className="p-5 rounded-xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
               <h3 className="text-sm font-bold mb-4" style={{ color: "var(--text)" }}>All Users ({users.length})</h3>
               <p className="text-[11px] mb-3 p-2 rounded" style={{ color: "var(--text-muted)", background: "var(--surface-2)" }}>
-                &#x1F4A1; Use &quot;Access&quot; to set which steps a user can edit. Enable &quot;View + Edit&quot; to let the user see all steps while only editing their authorized ones. Without it, users only see their authorized steps. &quot;Office Access&quot; controls which office location tasks the user can see.
+                Use &quot;Access&quot; to set each step as <strong>Edit</strong>, <strong>View</strong> or <strong>Both</strong>.
+                Use &quot;Generate Link&quot; to create the personal dashboard link of that user.
+                &quot;Office Access&quot; controls which office location tasks the user can see.
               </p>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
@@ -450,78 +551,45 @@ function AdminDashboardContent() {
                       <th className="text-left py-2 px-2 font-semibold" style={{ color: "var(--text-muted)" }}>Email</th>
                       <th className="text-left py-2 px-2 font-semibold" style={{ color: "var(--text-muted)" }}>Name</th>
                       <th className="text-left py-2 px-2 font-semibold" style={{ color: "var(--text-muted)" }}>Mobile</th>
-                      <th className="text-left py-2 px-2 font-semibold" style={{ color: "var(--text-muted)" }}>Authorized Steps</th>
-                      <th className="text-left py-2 px-2 font-semibold" style={{ color: "var(--text-muted)" }}>Office Access</th>
-                      <th className="text-left py-2 px-2 font-semibold" style={{ color: "var(--text-muted)" }}>Access</th>
+                      <th className="text-left py-2 px-2 font-semibold whitespace-nowrap" style={{ color: "var(--text-muted)" }}>Step Access</th>
+                      <th className="text-left py-2 px-2 font-semibold whitespace-nowrap" style={{ color: "var(--text-muted)" }}>Office Access</th>
+                      <th className="text-left py-2 px-2 font-semibold whitespace-nowrap" style={{ color: "var(--text-muted)" }}>Flags</th>
                       <th className="text-left py-2 px-2 font-semibold" style={{ color: "var(--text-muted)" }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {users.map((user, idx) => {
-                      const stepsStr = String(user.assignedSteps || "");
-                      const stepsArr = stepsStr ? stepsStr.split(",").map((s) => parseInt(s.trim())).filter((n) => !isNaN(n)) : [];
-                      const hasViewAll = user.canViewAllSteps === true || user.canViewAllSteps === "TRUE" || user.canViewAllSteps === "true";
-                      const userOfficeAccess = String(user.officeAccess || "");
+                      const userEmail = String(user.email || "");
                       return (
                         <tr key={idx} style={{ borderBottom: "1px solid var(--border-light)" }}>
-                          <td className="py-2 px-2" style={{ color: "var(--text)" }}>{String(user.email)}</td>
-                          <td className="py-2 px-2" style={{ color: "var(--text)" }}>{String(user.name)}</td>
+                          <td className="py-2 px-2" style={{ color: "var(--text)" }}>{userEmail}</td>
+                          <td className="py-2 px-2" style={{ color: "var(--text)" }}>{String(user.name || "")}</td>
                           <td className="py-2 px-2" style={{ color: "var(--text-muted)" }}>{String(user.mobile || "")}</td>
-                          <td className="py-2 px-2">
-                            {stepsArr.length > 0 ? (
-                              <div className="flex flex-wrap gap-1">
-                                {stepsArr.map((s) => (
-                                  <span key={s} className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "var(--primary-bg)", color: "var(--primary)" }}>
-                                    {s}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>None</span>
-                            )}
-                          </td>
-                          <td className="py-2 px-2">
-                            {userOfficeAccess ? (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(124, 58, 237, 0.08)", color: "#7c3aed" }}>
-                                {userOfficeAccess}
-                              </span>
-                            ) : (
-                              <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>All</span>
-                            )}
-                          </td>
-                          <td className="py-2 px-2">
-                            <div className="flex flex-wrap gap-1">
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: user.canFillForm ? "rgba(5,150,105,0.08)" : "rgba(220,38,38,0.08)", color: user.canFillForm ? "var(--success)" : "var(--danger)" }}>
-                                Form: {user.canFillForm ? "Yes" : "No"}
-                              </span>
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: hasViewAll ? "rgba(37,99,235,0.08)" : "rgba(100,100,100,0.08)", color: hasViewAll ? "var(--primary)" : "var(--text-faint)" }}>
-                                {hasViewAll ? "View+Edit" : "Edit Only"}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="py-2 px-2">
-                            <div className="flex gap-1.5">
+                          <td className="py-2 px-2 align-middle"><StepAccessCell user={user} /></td>
+                          <td className="py-2 px-2 align-middle"><OfficeAccessCell user={user} /></td>
+                          <td className="py-2 px-2 align-middle"><AccessFlagsCell user={user} /></td>
+                          <td className="py-2 px-2 align-middle">
+                            <div className="flex flex-wrap gap-1.5">
                               <button
-                                onClick={() => {
-                                  setEditingUser(user);
-                                  setEditSteps(stepsArr);
-                                  setEditCanFillForm(user.canFillForm === true || user.canFillForm === "TRUE" || user.canFillForm === "true");
-                                  setEditCanViewAllSteps(hasViewAll);
-                                  setEditOfficeAccess(userOfficeAccess);
-                                }}
-                                className="px-3 py-1.5 rounded text-[10px] font-semibold cursor-pointer transition-all hover:opacity-90 active:scale-[0.97] text-white shadow-sm"
+                                onClick={() => openAccessModal(user)}
+                                className="px-3 py-1.5 rounded text-[10px] font-semibold text-white cursor-pointer transition-all hover:opacity-90"
                                 style={{ background: "var(--primary)" }}
                               >
                                 Access
                               </button>
+
+                              {/* CHANGE 3 — Generate Link button restored */}
                               <button
-                                onClick={() => handleGenerateLink(String(user.email))}
-                                disabled={generatingLink === String(user.email)}
-                                className="px-3 py-1.5 rounded text-[10px] font-semibold cursor-pointer transition-all hover:opacity-90 active:scale-[0.97] text-white shadow-sm flex items-center gap-1"
-                                style={{ background: "#6366f1", opacity: generatingLink === String(user.email) ? 0.7 : 1 }}
+                                onClick={() => handleGenerateLink(userEmail)}
+                                disabled={generatingLink === userEmail}
+                                className="px-3 py-1.5 rounded text-[10px] font-semibold text-white cursor-pointer transition-all hover:opacity-90 flex items-center gap-1"
+                                style={{ background: "#7c3aed", opacity: generatingLink === userEmail ? 0.7 : 1 }}
+                                title="Create the personal dashboard link for this user"
                               >
-                                {generatingLink === String(user.email) && <span className="w-2.5 h-2.5 border-[1.5px] border-white/30 border-t-white rounded-full animate-spin" />}
-                                {generatingLink === String(user.email) ? "..." : "Link"}
+                                {generatingLink === userEmail && (
+                                  <span className="w-2.5 h-2.5 border-[1.5px] border-white/30 border-t-white rounded-full animate-spin" />
+                                )}
+                                {generatingLink === userEmail ? "Generating..." : "Generate Link"}
                               </button>
                             </div>
                           </td>
@@ -624,27 +692,27 @@ function AdminDashboardContent() {
           </div>
         )}
 
+        {activeTab === "forms" && <FormSubmissionsModule entries={entries} />}
+
         {activeTab === "holidays" && (
           <div className="space-y-6">
-            {/* Info Banner */}
             <div className="p-4 rounded-xl" style={{ background: "rgba(37,99,235,0.04)", border: "1px solid rgba(37,99,235,0.12)" }}>
               <p className="text-[11px]" style={{ color: "var(--primary)" }}>
-                <strong>ℹ️ How it works:</strong> Holiday dates and Sunday dates are fetched from the <strong>&quot;sunday&amp;holiday&quot;</strong> tab in Google Sheet. When a planned date is calculated for any step, it automatically skips these dates and moves to the next working day.
+                <strong>How it works:</strong> Holiday dates and Sunday dates are fetched from the <strong>&quot;sunday&amp;holiday&quot;</strong> tab in Google Sheet. When a planned date is calculated for any step, it automatically skips these dates and moves to the next working day.
               </p>
             </div>
 
             {loadingHolidays ? (
               <div className="flex flex-col items-center gap-3 py-12">
                 <div className="w-8 h-8 border-3 rounded-full animate-spin" style={{ borderColor: "var(--border)", borderTopColor: "var(--primary)" }} />
-                <p className="text-xs" style={{ color: "var(--text-muted)" }}>Loading holidays & Sundays...</p>
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>Loading holidays &amp; Sundays...</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Holidays Section */}
                 <div className="p-5 rounded-xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-sm font-bold flex items-center gap-2" style={{ color: "var(--text)" }}>
-                      🎉 Holidays
+                      Holidays
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: "var(--danger)" }}>
                         {holidaysData.holidays.length}
                       </span>
@@ -654,11 +722,11 @@ function AdminDashboardContent() {
                       className="text-[10px] px-2.5 py-1 rounded font-semibold cursor-pointer"
                       style={{ background: "var(--primary-bg)", color: "var(--primary)", border: "1px solid var(--primary)" }}
                     >
-                      🔄 Refresh
+                      Refresh
                     </button>
                   </div>
                   <p className="text-[10px] mb-3" style={{ color: "var(--text-muted)" }}>
-                    Source: Google Sheet → &quot;sunday&amp;holiday&quot; tab → Column A (dates from A2) &amp; Column B (reasons from B2)
+                    Source: Google Sheet &rarr; &quot;sunday&amp;holiday&quot; tab &rarr; Column A (dates from A2) &amp; Column B (reasons from B2)
                   </p>
                   <div className="overflow-y-auto max-h-[400px]">
                     {holidaysData.holidays.length > 0 ? (
@@ -686,18 +754,17 @@ function AdminDashboardContent() {
                   </div>
                 </div>
 
-                {/* Sundays Section */}
                 <div className="p-5 rounded-xl" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-sm font-bold flex items-center gap-2" style={{ color: "var(--text)" }}>
-                      📅 Sundays
+                      Sundays
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: "var(--warning)" }}>
                         {holidaysData.sundays.length}
                       </span>
                     </h3>
                   </div>
                   <p className="text-[10px] mb-3" style={{ color: "var(--text-muted)" }}>
-                    Source: Google Sheet → &quot;sunday&amp;holiday&quot; tab → Column D (dates from D3)
+                    Source: Google Sheet &rarr; &quot;sunday&amp;holiday&quot; tab &rarr; Column D (dates from D3)
                   </p>
                   <div className="overflow-y-auto max-h-[400px]">
                     {holidaysData.sundays.length > 0 ? (
@@ -723,7 +790,7 @@ function AdminDashboardContent() {
         )}
       </div>
 
-      {/* Enhanced Edit Access Modal */}
+      {/* ===================== EDIT ACCESS MODAL ===================== */}
       {editingUser && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-5" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }} onClick={(e) => { if (e.target === e.currentTarget) setEditingUser(null); }}>
           <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl p-6 shadow-2xl" style={{ background: "var(--surface)" }}>
@@ -732,7 +799,10 @@ function AdminDashboardContent() {
 
             <div className="mb-4 p-3 rounded-lg" style={{ background: "rgba(37,99,235,0.04)", border: "1px solid rgba(37,99,235,0.12)" }}>
               <p className="text-[11px]" style={{ color: "var(--primary)" }}>
-                <strong>How it works:</strong> Select the steps this user is authorized to edit/submit. By default, users can ONLY see their authorized steps. Enable &quot;View + Edit&quot; below to let them see ALL steps (read-only for non-authorized ones) while still only being able to edit their authorized steps. &quot;Office Access&quot; controls which office location tasks the user can see and fill forms for.
+                <strong>How it works:</strong> every step can be set to <strong>Edit</strong> (submit only),
+                <strong> View</strong> (read only) or <strong>Both</strong> (submit + always visible).
+                A step with none of them is completely hidden for this user.
+                &quot;Office Access&quot; controls which office location tasks the user can see and fill forms for.
               </p>
             </div>
 
@@ -757,80 +827,193 @@ function AdminDashboardContent() {
                 ))}
               </div>
               <p className="text-[10px] mt-1.5" style={{ color: "var(--text-muted)" }}>
-                {editOfficeAccess ? `User will see only "${editOfficeAccess}" office tasks and fill forms with that office location.` : "No restriction - user can see all office tasks."}
+                {editOfficeAccess ? "User will see only \"" + editOfficeAccess + "\" office tasks and fill forms with that office location." : "No restriction - user can see all office tasks."}
               </p>
             </div>
 
-            <label className="flex items-center gap-3 p-3 rounded-lg cursor-pointer mb-4" style={{ background: editCanViewAllSteps ? "rgba(37,99,235,0.06)" : "var(--surface-2)", border: "1px solid " + (editCanViewAllSteps ? "var(--primary)" : "var(--border)") }}>
-              <input type="checkbox" checked={editCanViewAllSteps} onChange={(e) => setEditCanViewAllSteps(e.target.checked)} className="w-4 h-4" style={{ accentColor: "var(--primary)" }} />
+            <label
+              className="flex items-center gap-3 p-3 rounded-lg cursor-pointer mb-4"
+              style={{
+                background: editCanViewAllSteps ? "rgba(37,99,235,0.06)" : "var(--surface-2)",
+                border: "1px solid " + (editCanViewAllSteps ? "var(--primary)" : "var(--border)"),
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={editCanViewAllSteps}
+                onChange={(e) => setEditCanViewAllSteps(e.target.checked)}
+                className="w-4 h-4"
+                style={{ accentColor: "var(--primary)" }}
+              />
               <div>
-                <span className="text-xs font-semibold block" style={{ color: "var(--text)" }}>View + Edit Access</span>
+                <span className="text-xs font-semibold block" style={{ color: "var(--text)" }}>Show ALL steps (master view switch)</span>
                 <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                  {editCanViewAllSteps ? "User can see ALL steps + edit authorized ones" : "User can ONLY see their authorized steps"}
+                  {editCanViewAllSteps
+                    ? "User sees every step. Leave all View boxes unchecked to show all 10 steps as read only."
+                    : "User sees only the steps selected below."}
                 </span>
               </div>
             </label>
 
             <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>Authorize Steps (User can edit these)</label>
-                <button
-                  onClick={handleSelectAllSteps}
-                  className="text-[10px] font-semibold px-2 py-1 rounded cursor-pointer"
-                  style={{ background: "var(--primary-bg)", color: "var(--primary)", border: "1px solid var(--primary)" }}
-                >
-                  {editSteps.length === 10 ? "Deselect All" : "Select All"}
-                </button>
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <label className="text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+                  Step wise access
+                </label>
+                <div className="flex gap-1.5 flex-wrap">
+                  <button
+                    onClick={handleSelectAllSteps}
+                    className="text-[10px] font-semibold px-2 py-1 rounded cursor-pointer"
+                    style={{ background: "var(--primary-bg)", color: "var(--primary)", border: "1px solid var(--primary)" }}
+                  >
+                    {editSteps.length === 10 ? "Clear Edit" : "All Edit"}
+                  </button>
+                  <button
+                    onClick={handleSelectAllViewSteps}
+                    className="text-[10px] font-semibold px-2 py-1 rounded cursor-pointer"
+                    style={{ background: "rgba(124,58,237,0.08)", color: "#7c3aed", border: "1px solid #7c3aed" }}
+                  >
+                    {editViewSteps.length === 10 ? "Clear View" : "All View"}
+                  </button>
+                  <button
+                    onClick={handleSelectAllBoth}
+                    className="text-[10px] font-semibold px-2 py-1 rounded cursor-pointer"
+                    style={{ background: "rgba(5,150,105,0.08)", color: "var(--success)", border: "1px solid var(--success)" }}
+                  >
+                    {editSteps.length === 10 && editViewSteps.length === 10 ? "Clear Both" : "All Both"}
+                  </button>
+                </div>
               </div>
 
+              <p className="text-[10px] mb-2" style={{ color: "var(--text-muted)" }}>
+                <strong>Edit</strong> = can submit the step. <strong>View</strong> = read only.
+                <strong> Both</strong> = can submit and always visible. Tick both boxes, or use the
+                quick buttons on each row.
+              </p>
+
               <div className="space-y-1.5">
-                {Array.from({ length: 10 }, (_, i) => i + 1).map((s) => {
-                  const isSelected = editSteps.includes(s);
+                {ALL_STEPS.map((s) => {
+                  const mode = getStepMode(s);
+                  const canEdit = mode === "edit" || mode === "both";
+                  const canView = mode === "view" || mode === "both";
+                  const effectiveView = canEdit || canView || (editCanViewAllSteps && editViewSteps.length === 0);
+
+                  const rowBg =
+                    mode === "both"
+                      ? "rgba(5,150,105,0.07)"
+                      : mode === "edit"
+                      ? "var(--primary-bg)"
+                      : mode === "view"
+                      ? "rgba(124,58,237,0.06)"
+                      : "var(--surface-2)";
+                  const rowBorder =
+                    mode === "both"
+                      ? "var(--success)"
+                      : mode === "edit"
+                      ? "var(--primary)"
+                      : mode === "view"
+                      ? "#7c3aed"
+                      : "var(--border)";
+                  const badgeBg =
+                    mode === "both"
+                      ? "var(--success)"
+                      : mode === "edit"
+                      ? "var(--primary)"
+                      : mode === "view"
+                      ? "#7c3aed"
+                      : "var(--surface-3)";
+
+                  const modeLabel =
+                    mode === "both" ? "Edit + View (Both)"
+                      : mode === "edit" ? "Edit only"
+                      : mode === "view" ? "View only"
+                      : effectiveView ? "View Only (from master switch)" : "Hidden";
+
                   return (
                     <div
                       key={s}
-                      onClick={() => {
-                        if (isSelected) {
-                          setEditSteps(editSteps.filter((x) => x !== s));
-                        } else {
-                          setEditSteps([...editSteps, s]);
-                        }
-                      }}
-                      className="flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all"
-                      style={{
-                        background: isSelected ? "var(--primary-bg)" : "var(--surface-2)",
-                        border: "1px solid " + (isSelected ? "var(--primary)" : "var(--border)"),
-                      }}
+                      className="flex items-center gap-2.5 p-2.5 rounded-lg flex-wrap"
+                      style={{ background: rowBg, border: "1px solid " + rowBorder }}
                     >
                       <div
                         className="w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold flex-shrink-0"
-                        style={{
-                          background: isSelected ? "var(--primary)" : "var(--surface-3)",
-                          color: isSelected ? "white" : "var(--text-faint)",
-                        }}
+                        style={{ background: badgeBg, color: mode === "hidden" ? "var(--text-faint)" : "#ffffff" }}
                       >
-                        {isSelected ? "\u2713" : s}
+                        {s}
                       </div>
-                      <div className="flex-1">
-                        <span className="text-xs font-semibold" style={{ color: "var(--text)" }}>
-                          Step {s}: {STEP_NAMES[s]}
+
+                      <div className="flex-1 min-w-[120px]">
+                        <span className="text-xs font-semibold block truncate" style={{ color: "var(--text)" }}>
+                          {STEP_NAMES[s]}
+                        </span>
+                        <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>
+                          {modeLabel}
                         </span>
                       </div>
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{
-                        background: isSelected ? "rgba(5,150,105,0.08)" : "rgba(220,38,38,0.08)",
-                        color: isSelected ? "var(--success)" : "var(--danger)",
-                      }}>
-                        {isSelected ? "Can Edit" : (editCanViewAllSteps ? "View Only" : "Hidden")}
-                      </span>
+
+                      {/* independent checkboxes: Edit / View / Both */}
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={canEdit}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setStepMode(s, canView ? "both" : "edit");
+                            } else {
+                              setStepMode(s, canView ? "view" : "hidden");
+                            }
+                          }}
+                          className="w-3.5 h-3.5"
+                          style={{ accentColor: "var(--primary)" }}
+                        />
+                        <span className="text-[9px] font-bold" style={{ color: "var(--primary)" }}>Edit</span>
+                      </label>
+
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={canView}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setStepMode(s, canEdit ? "both" : "view");
+                            } else {
+                              setStepMode(s, canEdit ? "edit" : "hidden");
+                            }
+                          }}
+                          className="w-3.5 h-3.5"
+                          style={{ accentColor: "#7c3aed" }}
+                        />
+                        <span className="text-[9px] font-bold" style={{ color: "#7c3aed" }}>View</span>
+                      </label>
+
+                      <button
+                        type="button"
+                        onClick={() => setStepMode(s, mode === "both" ? "hidden" : "both")}
+                        className="text-[9px] font-bold px-2 py-1 rounded cursor-pointer"
+                        style={{
+                          background: mode === "both" ? "var(--success)" : "var(--surface)",
+                          color: mode === "both" ? "#ffffff" : "var(--success)",
+                          border: "1px solid var(--success)",
+                        }}
+                        title="Set this step to Edit + View"
+                      >
+                        Both
+                      </button>
                     </div>
                   );
                 })}
               </div>
 
-              <div className="mt-3 p-2 rounded" style={{ background: "var(--surface-2)" }}>
-                <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
-                  Selected: {editSteps.length > 0 ? editSteps.sort((a, b) => a - b).map((s) => s + ". " + STEP_NAMES[s]).join(", ") : "No steps authorized"}
-                </span>
+              <div className="mt-3 p-2 rounded space-y-1" style={{ background: "var(--surface-2)" }}>
+                <div className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                  Edit only: {editSteps.filter((s) => !editViewSteps.includes(s)).sort((a, b) => a - b).join(", ") || "None"}
+                </div>
+                <div className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                  View only: {editViewSteps.filter((s) => !editSteps.includes(s)).sort((a, b) => a - b).join(", ") || "None"}
+                </div>
+                <div className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                  Both: {editSteps.filter((s) => editViewSteps.includes(s)).sort((a, b) => a - b).join(", ") || "None"}
+                </div>
               </div>
             </div>
 
@@ -839,23 +1022,37 @@ function AdminDashboardContent() {
               <span className="text-xs font-semibold" style={{ color: "var(--text)" }}>Can Fill Main Form (New Entry)</span>
             </label>
 
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setEditingUser(null)} disabled={savingAccess} className="px-4 py-2.5 rounded-md text-xs font-semibold cursor-pointer transition-all hover:opacity-90" style={{ background: "var(--surface-2)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>Cancel</button>
-              <button onClick={handleUpdateAccess} disabled={savingAccess} className="px-4 py-2.5 rounded-md text-xs font-semibold text-white cursor-pointer transition-all hover:opacity-90 active:scale-[0.98] shadow-sm flex items-center gap-1.5" style={{ background: "var(--success)", opacity: savingAccess ? 0.7 : 1 }}>
-                {savingAccess && <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-                {savingAccess ? "Saving..." : "Save Access"}
+            <div className="flex gap-2 justify-between flex-wrap">
+              <button
+                onClick={() => handleGenerateLink(String(editingUser.email || ""))}
+                disabled={generatingLink === String(editingUser.email || "")}
+                className="px-4 py-2.5 rounded-md text-xs font-semibold text-white cursor-pointer transition-all hover:opacity-90 flex items-center gap-1.5"
+                style={{ background: "#7c3aed", opacity: generatingLink === String(editingUser.email || "") ? 0.7 : 1 }}
+              >
+                {generatingLink === String(editingUser.email || "") && (
+                  <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                )}
+                {generatingLink === String(editingUser.email || "") ? "Generating..." : "Generate Link"}
               </button>
+
+              <div className="flex gap-2">
+                <button onClick={() => setEditingUser(null)} disabled={savingAccess} className="px-4 py-2.5 rounded-md text-xs font-semibold cursor-pointer transition-all hover:opacity-90" style={{ background: "var(--surface-2)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>Cancel</button>
+                <button onClick={handleUpdateAccess} disabled={savingAccess} className="px-4 py-2.5 rounded-md text-xs font-semibold text-white cursor-pointer transition-all hover:opacity-90 active:scale-[0.98] shadow-sm flex items-center gap-1.5" style={{ background: "var(--success)", opacity: savingAccess ? 0.7 : 1 }}>
+                  {savingAccess && <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+                  {savingAccess ? "Saving..." : "Save Access"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
       {generatedLink && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-5" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }} onClick={(e) => { if (e.target === e.currentTarget) setGeneratedLink(""); }}>
+        <div className="fixed inset-0 z-[1500] flex items-center justify-center p-5" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }} onClick={(e) => { if (e.target === e.currentTarget) setGeneratedLink(""); }}>
           <div className="w-full max-w-md rounded-xl p-6 shadow-2xl" style={{ background: "var(--surface)" }}>
             <h2 className="text-base font-bold mb-2" style={{ color: "var(--text)" }}>Generated User Link</h2>
             <p className="text-[11px] mb-3" style={{ color: "var(--text-muted)" }}>
-              This link will show the user only their authorized steps for editing. If &quot;View + Edit&quot; is enabled, they will also see other steps as read-only.
+              This link opens the personal dashboard of that user. Steps set to Edit or Both are submittable, steps set to View are read only.
             </p>
             <div className="p-3 rounded-lg break-all text-xs" style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--primary)" }}>
               {generatedLink}
@@ -874,7 +1071,6 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* Sync Notifications Panel (bottom-right) */}
       {syncNotifications.length > 0 && (
         <div className="fixed bottom-16 right-6 z-[900] w-72 max-h-48 overflow-y-auto rounded-lg shadow-lg" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
           <div className="flex items-center justify-between px-3 py-2" style={{ borderBottom: "1px solid var(--border)" }}>
@@ -884,7 +1080,7 @@ function AdminDashboardContent() {
           <div className="p-2 space-y-1">
             {syncNotifications.slice(0, 5).map((n) => (
               <div key={n.id} className="text-[10px] p-1.5 rounded" style={{ background: "var(--surface-2)", color: "var(--text-secondary)" }}>
-                🔄 {n.message}
+                {n.message}
               </div>
             ))}
           </div>
