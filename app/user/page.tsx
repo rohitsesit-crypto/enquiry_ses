@@ -1,50 +1,5 @@
 "use client";
 
-// =============================================================================
-// app/user/page.tsx   —  FULL CORRECTED FILE (replace your existing one)
-// =============================================================================
-// FIXES INCLUDED IN THIS FILE
-//
-// 1) "User can't see which step they have been assigned"
-//    - Access is now read from BOTH dashboardData.user AND the flat top level
-//      fields, and it accepts assignedStepsList / viewStepsList (arrays) as well
-//      as assignedSteps / viewSteps (comma strings). The old file only read the
-//      flat fields, so when the backend returned the nested `user` object the
-//      lists came out empty.
-//    - A permanent <MyAccessBar> now shows, in words, exactly which steps the
-//      user can SUBMIT and which ones are VIEW ONLY, plus an explicit warning
-//      when nothing is assigned.
-//    - Every step chip carries an EDIT / VIEW label so there is never any doubt.
-//
-// 2) Alignment issues
-//    - The access bar is a real grid with fixed label widths, so "Can submit",
-//      "View only" and "Office" always line up instead of wrapping randomly.
-//    - Step chips use fixed-size number badges (w-5 h-5) and `whitespace-nowrap`
-//      so cards keep the same height whether a user has 1 step or 10.
-//    - InfoRow labels use a fixed 118px column so the detail modal is aligned.
-//    - Office label goes through officeAccessLabel(), so a broken value (e.g.
-//      step numbers left over from the old column bug) renders as "All Offices"
-//      instead of printing numbers where an office name belongs.
-//
-// 3) Access not working properly
-//    - visibleSteps now comes from the corrected getVisibleSteps(), where
-//      assignedSteps + viewSteps are ALWAYS merged (canViewAllSteps is only the
-//      "show everything" master switch).
-//    - openStepSubmit() is a hard guard: a step that is not in assignedSteps can
-//      never open the submit modal, even if a stale card is clicked.
-//    - New Entry button + form respect canFillForm and officeAccess.
-//
-// 4) Data not refreshing
-//    - Polling reduced to 15s, plus a refresh on window focus and on tab
-//      visibility change, so data manually typed into the Google Sheet shows up
-//      without a hard reload.
-//
-// REQUIRED COMPANION FILES (already provided):
-//    app/lib/accessControl.ts   (corrected)
-//    app/lib/api.ts             (corrected)
-//    Code.gs                    (corrected backend)
-// =============================================================================
-
 import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { getUserDashboardData, verifyUser, submitNewEntry, submitStep, updateEntry } from "../lib/api";
