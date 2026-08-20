@@ -1,24 +1,39 @@
 // =============================================================================
 // app/lib/partialSubmission.ts   (REPLACE THE WHOLE FILE)
 // =============================================================================
-// Part wise partial submission engine for Steps 7, 8, 9 and 10 (change C).
+// Part wise partial submission engine for Steps 7, 8, 9 and 10.
 //
-// Rules implemented here
-//  - Every submission of a partial step creates its own "Part" record, so a new
-//    submission NEVER overwrites the previous one.
-//  - When Step 7 is submitted partially:
-//        Step 7 Part 1 -> Completed
-//        Step 7 Part 2 -> Pending   (remaining quantity, still submittable)
-//        Step 8 Part 1 -> Pending   (released quantity, submittable NOW)
-//    Both are submittable at the same time. There is NO "go back" logic.
-//  - The same applies between 8 -> 9 and 9 -> 10, so Step 9 Part 1 and
-//    Step 10 Part 1 also become available while Part 2 of the earlier step is
-//    still pending.
-//  - Overall step status is ALWAYS calculated from its parts, never stored.
+// QUANTITY RULE (as confirmed by the user)
+//   Total quantity of EVERY quantity step is the form quantity (Requirements_JSON).
+//        100 total, 40 submitted  ->  "Partially Submitted"  (Part 2 stays Pending)
+//        100 total, 100 submitted ->  "Completed"
+//
+// CHANGE 6  (NEW — fixes "sheet is on Step 9 but UI still shows Step 8 Pending")
+//   1) The sheet status is now TRUSTED. If the backend already wrote
+//      Step_8_Status = "Completed", the UI can never downgrade it back to
+//      "Pending"/"Partially Submitted". This was the real bug: older entries
+//      (and entries submitted before Parts_JSON existed) have no part records,
+//      so the UI recalculated 0 of 100 and showed "Pending" forever even though
+//      the sheet had already moved Current_Step to 9.
+//   2) A step whose sheet status is "Completed" is no longer actionable, so it
+//      disappears from the Pending Tasks list.
+//   3) Steps 8/9/10 still cannot submit more than the previous step released,
+//      BUT when the previous step is already "Completed" without part records
+//      (legacy data) the full remaining quantity is released, so the step never
+//      gets stuck at 0.
+//
+// Existing rules kept exactly as they were
+//   - Every submission of a partial step creates its own "Part" record, so a new
+//     submission NEVER overwrites the previous one.
+//   - Step 7 Part 2 (remaining) and Step 8 Part 1 (released) stay submittable at
+//     the same time. There is NO "go back" logic.
 // =============================================================================
 
 /** Steps that support quantity based partial submission */
 export const PARTIAL_STEPS = [7, 8, 9, 10];
+
+/** Steps whose quantity is inherited (read only) from the previous step */
+export const QUANTITY_INHERITED_STEPS = [8, 9, 10];
 
 export interface RequirementItem {
   itemName: string;
@@ -87,6 +102,11 @@ export function isPartialStep(stepNum: number): boolean {
   return PARTIAL_STEPS.indexOf(Number(stepNum)) >= 0;
 }
 
+/** True when the step inherits its quantity from the previous step (8/9/10) */
+export function isQuantityInherited(stepNum: number): boolean {
+  return QUANTITY_INHERITED_STEPS.indexOf(Number(stepNum)) >= 0;
+}
+
 function toNumber(value: unknown): number {
   const num = typeof value === 'number' ? value : parseFloat(String(value ?? '').trim());
   return isNaN(num) ? 0 : num;
@@ -109,6 +129,16 @@ function parseArray(value: unknown): Record<string, unknown>[] {
   }
 }
 
+/** Raw status written in the Google Sheet for a step */
+export function getRawStepStatus(entry: EntryRecord, stepNum: number): string {
+  return toText(entry?.[`Step_${stepNum}_Status`]) || 'Locked';
+}
+
+/** CHANGE 6 — the sheet already marked this step as finished */
+export function isStepCompletedInSheet(entry: EntryRecord, stepNum: number): boolean {
+  return getRawStepStatus(entry, stepNum) === 'Completed';
+}
+
 /** Requirement items of the entry (the total quantity source of truth) */
 export function getRequirements(entry: EntryRecord): RequirementItem[] {
   return parseArray(entry?.Requirements_JSON).map((r) => ({
@@ -118,9 +148,14 @@ export function getRequirements(entry: EntryRecord): RequirementItem[] {
   }));
 }
 
-/** Total quantity of a step = sum of all requirement quantities */
+/** Total quantity of a step = sum of all requirement quantities (form quantity) */
 export function getStepTotalQuantity(entry: EntryRecord): number {
   return getRequirements(entry).reduce((sum, r) => sum + r.quantity, 0);
+}
+
+/** Target quantity a step must reach to be Completed = the form quantity */
+export function getStepTargetQuantity(entry: EntryRecord, _stepNum?: number): number {
+  return getStepTotalQuantity(entry);
 }
 
 function normalizePartItems(raw: unknown): StepPartItem[] {
@@ -204,9 +239,16 @@ export function getSubmittedItemMap(entry: EntryRecord, stepNum: number): Record
   return map;
 }
 
-/** Total quantity submitted so far for a step (across all its parts) */
+/**
+ * Total quantity submitted so far for a step.
+ * CHANGE 6 — when the sheet already says "Completed" but no part records exist
+ * (legacy rows), the step counts as fully submitted.
+ */
 export function getSubmittedQuantity(entry: EntryRecord, stepNum: number): number {
-  return getStepParts(entry, stepNum).reduce((sum, p) => sum + p.submittedQuantity, 0);
+  const fromParts = getStepParts(entry, stepNum).reduce((sum, p) => sum + p.submittedQuantity, 0);
+  if (fromParts > 0) return fromParts;
+  if (isStepCompletedInSheet(entry, stepNum)) return getStepTotalQuantity(entry);
+  return 0;
 }
 
 /** Quantity still pending for a step */
@@ -216,9 +258,43 @@ export function getRemainingQuantity(entry: EntryRecord, stepNum: number): numbe
 
 /** True when every unit of the step has been submitted */
 export function isStepFullySubmitted(entry: EntryRecord, stepNum: number): boolean {
+  if (isStepCompletedInSheet(entry, stepNum)) return true;
   const total = getStepTotalQuantity(entry);
   if (total <= 0) return false;
   return getSubmittedQuantity(entry, stepNum) >= total;
+}
+
+/**
+ * Quantity per item that the PREVIOUS step released to this step.
+ * Step 7 has no previous quantity step, so it uses the requirement quantity.
+ * CHANGE 6 — if the previous step is already "Completed" in the sheet but has no
+ * part records (legacy data), it is treated as having released everything.
+ */
+export function getReleasedItemMap(entry: EntryRecord, stepNum: number): Record<string, number> {
+  const requirements = getRequirements(entry);
+
+  if (!isQuantityInherited(stepNum)) {
+    const map: Record<string, number> = {};
+    requirements.forEach((r) => { map[r.itemName] = r.quantity; });
+    return map;
+  }
+
+  const prevStep = Number(stepNum) - 1;
+  const prevMap = getSubmittedItemMap(entry, prevStep);
+  const prevTotal = Object.keys(prevMap).reduce((sum, k) => sum + (prevMap[k] || 0), 0);
+
+  if (prevTotal <= 0 && isStepCompletedInSheet(entry, prevStep)) {
+    const fallback: Record<string, number> = {};
+    requirements.forEach((r) => { fallback[r.itemName] = r.quantity; });
+    return fallback;
+  }
+  return prevMap;
+}
+
+/** Total quantity released to this step by the previous step */
+export function getStepReleasedQuantity(entry: EntryRecord, stepNum: number): number {
+  const map = getReleasedItemMap(entry, stepNum);
+  return Object.keys(map).reduce((sum, key) => sum + (map[key] || 0), 0);
 }
 
 /**
@@ -230,14 +306,20 @@ export function isStepFullySubmitted(entry: EntryRecord, stepNum: number): boole
 export function getStepItemProgress(entry: EntryRecord, stepNum: number): StepItemProgress[] {
   const requirements = getRequirements(entry);
   const submitted = getSubmittedItemMap(entry, stepNum);
-  const previous = Number(stepNum) > 7 ? getSubmittedItemMap(entry, Number(stepNum) - 1) : null;
+  const completedInSheet = isStepCompletedInSheet(entry, stepNum);
+  const inherited = isQuantityInherited(stepNum);
+  const released = inherited ? getReleasedItemMap(entry, stepNum) : null;
 
   return requirements.map((req) => {
-    const done = submitted[req.itemName] || 0;
+    let done = submitted[req.itemName] || 0;
+    // legacy completed row without part records -> treat as fully done
+    if (done === 0 && completedInSheet) done = req.quantity;
+
     const remaining = Math.max(0, req.quantity - done);
-    const availableFromPrevious = previous
-      ? Math.max(0, (previous[req.itemName] || 0) - done)
+    const availableFromPrevious = released
+      ? Math.max(0, (released[req.itemName] || 0) - done)
       : remaining;
+
     return {
       itemName: req.itemName,
       unit: req.unit,
@@ -252,11 +334,14 @@ export function getStepItemProgress(entry: EntryRecord, stepNum: number): StepIt
 
 /** Quantity that can be submitted right now for the whole step */
 export function getStepMaxSubmittable(entry: EntryRecord, stepNum: number): number {
+  if (isStepCompletedInSheet(entry, stepNum)) return 0;
   return getStepItemProgress(entry, stepNum).reduce((sum, item) => sum + item.maxSubmittable, 0);
 }
 
 /** The derived pending part representing the remaining quantity */
 export function getPendingPart(entry: EntryRecord, stepNum: number): StepPart | null {
+  if (isStepCompletedInSheet(entry, stepNum)) return null;
+
   const total = getStepTotalQuantity(entry);
   if (total <= 0) return null;
   const remaining = getRemainingQuantity(entry, stepNum);
@@ -288,11 +373,15 @@ export function getPendingPart(entry: EntryRecord, stepNum: number): StepPart | 
   };
 }
 
-/** Overall step status calculated from all of its parts */
+/**
+ * Overall step status calculated from all of its parts.
+ * CHANGE 6 — a step that the sheet already marked "Completed" stays Completed.
+ */
 export function getOverallStepStatus(entry: EntryRecord, stepNum: number): string {
-  const rawStatus = toText(entry?.[`Step_${stepNum}_Status`]) || 'Locked';
+  const rawStatus = getRawStepStatus(entry, stepNum);
   if (!isPartialStep(stepNum)) return rawStatus;
   if (rawStatus === 'Locked' || rawStatus === 'Skipped' || rawStatus === 'Stopped') return rawStatus;
+  if (rawStatus === 'Completed') return 'Completed';
 
   const total = getStepTotalQuantity(entry);
   if (total <= 0) return rawStatus;
@@ -312,10 +401,12 @@ export function getOverallStepStatus(entry: EntryRecord, stepNum: number): strin
 export function getStepPartSummary(entry: EntryRecord, stepNum: number): StepPartSummary {
   const parts = getStepParts(entry, stepNum);
   const total = getStepTotalQuantity(entry);
-  const submittedQuantity = parts.reduce((sum, p) => sum + p.submittedQuantity, 0);
+  const completedInSheet = isStepCompletedInSheet(entry, stepNum);
+  const partsQuantity = parts.reduce((sum, p) => sum + p.submittedQuantity, 0);
+  const submittedQuantity = partsQuantity > 0 ? partsQuantity : (completedInSheet ? total : 0);
   const pendingPart = getPendingPart(entry, stepNum);
   const maxSubmittable = getStepMaxSubmittable(entry, stepNum);
-  const rawStatus = toText(entry?.[`Step_${stepNum}_Status`]) || 'Locked';
+  const rawStatus = getRawStepStatus(entry, stepNum);
   const unlocked = rawStatus !== 'Locked' && rawStatus !== 'Skipped' && rawStatus !== 'Stopped';
 
   return {
@@ -327,11 +418,12 @@ export function getStepPartSummary(entry: EntryRecord, stepNum: number): StepPar
     allParts: pendingPart ? [...parts, pendingPart] : parts,
     pendingPart,
     overallStatus: getOverallStepStatus(entry, stepNum),
-    isFullySubmitted: total > 0 && submittedQuantity >= total,
-    hasPartialSubmission: parts.length > 0 && submittedQuantity < total,
+    isFullySubmitted: completedInSheet || (total > 0 && submittedQuantity >= total),
+    hasPartialSubmission: !completedInSheet && parts.length > 0 && submittedQuantity < total,
     nextPartNumber: parts.length + 1,
     maxSubmittable,
-    isActionable: unlocked && maxSubmittable > 0,
+    // CHANGE 6 — a step completed in the sheet is never actionable again
+    isActionable: unlocked && !completedInSheet && maxSubmittable > 0,
   };
 }
 
@@ -350,7 +442,7 @@ export function getNextPartLabel(entry: EntryRecord, stepNum: number): string {
 
 /**
  * Item wise invoice attachments recorded in Step 7, grouped per item.
- * Step 8 renders exactly this (change C / E):
+ * Step 8 renders exactly this:
  *     Item A : quantity : all Item A invoice attachments
  *     Item B : quantity : all Item B invoice attachments
  */
@@ -432,6 +524,8 @@ export function buildPartialPayload(options: {
     totalQuantity: total,
     remainingQuantity: remainingAfter,
     isPartial: remainingAfter > 0,
+    /** true => the full form quantity is covered, so the step is Completed */
+    isFullyCovered: remainingAfter <= 0,
     items: cleanItems,
     reference,
     attachment,
@@ -440,7 +534,7 @@ export function buildPartialPayload(options: {
 }
 
 // -----------------------------------------------------------------------------
-// HISTORY  (change C — part wise rows, e.g. "Step 7 Part 2 — Pending")
+// HISTORY  (part wise rows, e.g. "Step 7 Part 2 — Pending")
 // -----------------------------------------------------------------------------
 
 export interface HistoryRow {
@@ -470,7 +564,7 @@ export function getEntryHistoryRows(entry: EntryRecord, steps?: number[]): Histo
     .slice()
     .sort((a, b) => a - b)
     .forEach((stepNum) => {
-      const rawStatus = toText(entry?.[`Step_${stepNum}_Status`]) || 'Locked';
+      const rawStatus = getRawStepStatus(entry, stepNum);
       if (rawStatus === 'Locked') return;
 
       if (isPartialStep(stepNum)) {
@@ -482,10 +576,10 @@ export function getEntryHistoryRows(entry: EntryRecord, steps?: number[]): Histo
             stepNumber: stepNum,
             partNumber: 1,
             label: `Step ${stepNum} Part 1`,
-            submittedQuantity: 0,
-            remainingQuantity: summary.totalQuantity,
+            submittedQuantity: summary.submittedQuantity,
+            remainingQuantity: summary.remainingQuantity,
             totalQuantity: summary.totalQuantity,
-            status: rawStatus === 'Completed' ? 'Completed' : rawStatus,
+            status: summary.overallStatus,
             submittedAt: toText(entry?.[`Step_${stepNum}_Completed_Timestamp`]),
             submittedBy: toText(entry?.[`Step_${stepNum}_Completed_By`]),
             reference: '',
