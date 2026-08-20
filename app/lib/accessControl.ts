@@ -1,27 +1,3 @@
-// =============================================================================
-// app/lib/accessControl.ts   —  CORRECTED VERSION
-// =============================================================================
-// WHAT CHANGED AND WHY
-//
-// 1) getVisibleSteps() used to IGNORE viewSteps whenever canViewAllSteps was
-//    false. That is why ticking "View" for a step in the admin modal had no
-//    effect unless "View + Edit" was also switched on.
-//    => assignedSteps + viewSteps are now ALWAYS merged.
-//       canViewAllSteps is only the "show every step" master switch.
-//
-// 2) officeAccess is now sanitized. If a broken row still carries step numbers
-//    in that field (the old column mix-up), it is treated as "no restriction"
-//    instead of being rendered as an office name in the UI.
-//
-// 3) readUserAccess() accepts BOTH shapes returned by the backend:
-//    assignedSteps / assignedStepsList and viewSteps / viewStepsList,
-//    as strings ("1,2,7") or arrays ([1,2,7]).
-//
-// Access model, in one sentence:
-//    EDIT  = step is in assignedSteps
-//    VIEW  = step is in assignedSteps OR viewSteps OR (canViewAllSteps with an
-//            empty viewSteps list, which means "show all 10")
-// =============================================================================
 
 export interface UserAccess {
   assignedSteps: number[];
