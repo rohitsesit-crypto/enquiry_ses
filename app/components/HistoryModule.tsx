@@ -1,11 +1,4 @@
-// =============================================================================
-// app/components/HistoryModule.tsx   (NEW FILE — create it)
-// =============================================================================
-// CHANGE C — history shows part wise rows:
-//   Step 7 Part 1  Completed   25 / 50
-//   Step 7 Part 2  Pending     25 remaining
-//   Step 8 Part 1  Completed   25 / 50
-// =============================================================================
+
 "use client";
 
 import React, { useMemo, useState } from "react";
