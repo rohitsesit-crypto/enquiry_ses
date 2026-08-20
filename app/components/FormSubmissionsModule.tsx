@@ -1,10 +1,4 @@
-// =============================================================================
-// app/components/FormSubmissionsModule.tsx   (NEW FILE — create it)
-// =============================================================================
-// CHANGE F — a dedicated "Form" module that lists EVERY form submission with
-// all details, exactly like the primary information view modal.
-// Latest submission is shown on TOP, oldest at the BOTTOM.
-// =============================================================================
+
 "use client";
 
 import React, { useMemo, useState } from "react";
