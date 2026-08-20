@@ -1,4 +1,30 @@
-
+// =============================================================================
+// app/components/StepWorkflow.tsx   (REPLACE THE WHOLE FILE)
+// =============================================================================
+// CHANGE 1
+//   Step 7 : while typing the quantity, every item now shows a LIVE line
+//            "Entered X · Y remaining"  or  "Matched · full quantity entered",
+//            plus a total "Total entered X / Y — Matched / Z remaining" banner.
+//
+// CHANGE 2
+//   Step 7 : the submission now also sends `step7InvoiceLog`
+//              { Entry_ID, Invoice_No, Timestamp, Attachment_URL }
+//            with Timestamp formatted as  08-08-2026 5:09:21 PM
+//            so the backend can append one row to the Google Sheet tab
+//            "Step 7 Invoice Attchment".
+//
+// CHANGE 4  (NEW — this version)
+//   a) Step 8 "Invoice/challan no" is now a TEXT box (type="text"), because the
+//      value can contain BOTH letters and numbers (e.g. INV/2026-08/0142).
+//   b) Quantity is NO LONGER asked in Step 8, Step 9 and Step 10.
+//      The quantity entered in Step 7 stays CONSTANT and is carried forward:
+//         Step 8  -> quantity released by Step 7   (read only)
+//         Step 9  -> quantity released by Step 8   (read only)
+//         Step 10 -> quantity released by Step 9   (read only)
+//      Only Step 7 has editable quantity inputs.
+//
+// Nothing else in the step logic / routing was changed.
+// =============================================================================
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
@@ -84,7 +110,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
   const [deliveryDate, setDeliveryDate] = useState("");
   const [payTerms, setPayTerms] = useState("");
 
-  // Steps 7 / 8 / 9 / 10 part wise quantities
+  // Steps 7 / 8 / 9 / 10 part wise quantities (only Step 7 is editable now)
   const [partialQuantities, setPartialQuantities] = useState<Record<string, string>>({});
   const [reference, setReference] = useState("");
 
@@ -114,8 +140,13 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
     [entry, stepNum]
   );
 
-  // CHANGE 1 — Step 8 quantity is locked (read only), it can never be typed
-  const quantityLocked = stepNum === 8;
+  // ---------------------------------------------------------------------------
+  // CHANGE 4b — quantity is LOCKED for Step 8, Step 9 and Step 10.
+  // It is never typed there; it is exactly the quantity that Step 7 released
+  // and that each following step carries forward unchanged.
+  // ---------------------------------------------------------------------------
+  const quantityLocked = stepNum >= 8;
+  const quantitySourceStep = stepNum - 1; // 8 -> 7, 9 -> 8, 10 -> 9
 
   // Pre-fill each item with its maximum submittable quantity
   useEffect(() => {
@@ -130,8 +161,8 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
 
   /**
    * Quantity used for validation and for the submitted payload.
-   * Step 8 always uses the quantity released by Step 7 (never user input),
-   * so the value stays constant exactly as entered in Step 7.
+   * Steps 8 / 9 / 10 always use the quantity released by the previous step
+   * (never user input), so the Step 7 quantity stays constant end to end.
    */
   const getItemQty = (item: StepItemProgress): number => {
     if (quantityLocked) return item.maxSubmittable;
@@ -236,9 +267,10 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
       if (stepNum === 8) {
         data.dispatchData = {
           mode: dispatchMode,
+          // CHANGE 4a — kept as a plain string (letters + numbers allowed)
           name: dispatchName,
           mobNo: dispatchMobNo,
-          invoiceChallanNo: reference,
+          invoiceChallanNo: String(reference || "").trim(),
           gatePassNo,
           lrNo,
           status: "Yes",
@@ -279,10 +311,11 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
       return true;
     }
     if (stepNum === 8) {
+      // quantity is locked, so it only has to be greater than zero
       if (hasQuantityError || enteredTotal <= 0) return false;
       if (status !== "Yes") return false;
       // every dispatch form field is mandatory
-      return !!dispatchMode && !!dispatchName && !!dispatchMobNo && !!reference && !!lrNo;
+      return !!dispatchMode && !!dispatchName && !!dispatchMobNo && !!String(reference).trim() && !!lrNo;
     }
     if (stepNum === 9 || stepNum === 10) {
       if (hasQuantityError || enteredTotal <= 0) return false;
@@ -409,11 +442,11 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
     );
   };
 
-  /** STEP 7 (and 9/10) — editable quantity with live remain / matched feedback */
+  /** STEP 7 ONLY — editable quantity with live remain / matched feedback */
   const renderQuantityInputs = () => (
     <div className="space-y-2">
       <label className="block text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
-        {stepNum === 7 ? "Quantity received for each item" : "Quantity for this submission"}
+        Quantity received for each item
         <span style={{ color: "var(--danger)" }}> *</span>
       </label>
 
@@ -490,8 +523,9 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
   );
 
   /**
-   * CHANGE 1 — STEP 8 : quantity is NOT editable.
-   * It is exactly the quantity entered in Step 7 and is only displayed.
+   * CHANGE 4b — STEPS 8 / 9 / 10 : quantity is NOT editable and NOT asked.
+   * It is exactly the quantity entered in Step 7 and carried forward by the
+   * previous step, so it is only DISPLAYED here.
    */
   const renderLockedQuantities = () => (
     <div className="space-y-2">
@@ -512,7 +546,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
           <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
             <span className="text-[11px] font-semibold" style={{ color: "var(--text)" }}>{item.itemName}</span>
             <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-              Form Qty {item.totalQuantity} {item.unit} · Dispatched {item.submitted}
+              Form Qty {item.totalQuantity} {item.unit} · Done {item.submitted}
             </span>
           </div>
 
@@ -522,7 +556,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
           >
             <span>{item.maxSubmittable} {item.unit}</span>
             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "var(--primary-bg)", color: "var(--primary)" }}>
-              FROM STEP 7
+              FROM STEP {quantitySourceStep}
             </span>
           </div>
 
@@ -530,7 +564,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
             <p className="mt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>
               {item.remaining === 0
                 ? "Fully completed for this step."
-                : "Waiting for Step 7 to release quantity."}
+                : `Waiting for Step ${quantitySourceStep} to release quantity.`}
             </p>
           )}
         </div>
@@ -541,7 +575,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
         style={{ background: "rgba(37,99,235,0.06)", border: "1px solid rgba(37,99,235,0.22)" }}
       >
         <span className="text-[10px] font-bold" style={{ color: "var(--primary)" }}>
-          Total quantity for this dispatch: {enteredTotal}
+          Total quantity for this {stepNum === 8 ? "dispatch" : "submission"}: {enteredTotal}
         </span>
         <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
           Same as Step 7 — locked
@@ -804,7 +838,8 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
             {renderAttachment(true, "Upload Invoice Attachment")}
             <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
               Invoice number, quantity and attachment are also saved in the sheet tab
-              &quot;{STEP7_INVOICE_SHEET_NAME}&quot;.
+              &quot;{STEP7_INVOICE_SHEET_NAME}&quot;. This quantity is then carried forward
+              unchanged to Step 8, Step 9 and Step 10.
             </p>
           </>
         )}
@@ -847,7 +882,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
               </div>
             )}
 
-            {/* CHANGE 1 — quantity is only displayed here, never entered */}
+            {/* CHANGE 4b — quantity is only displayed here, never entered */}
             {renderLockedQuantities()}
 
             {/* Mode selection */}
@@ -885,8 +920,15 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
                 </h4>
                 <div className="grid grid-cols-2 gap-3">
                   <TextInput label="Name *" value={dispatchName} onChange={setDispatchName} />
-                  <TextInput label="Mob no *" value={dispatchMobNo} onChange={setDispatchMobNo} type="number" />
-                  <TextInput label="Invoice/challan no *" value={reference} onChange={setReference} type="number" />
+                  <TextInput label="Mob no *" value={dispatchMobNo} onChange={setDispatchMobNo} type="tel" />
+                  {/* CHANGE 4a — plain TEXT box, letters + numbers are allowed */}
+                  <TextInput
+                    label="Invoice/challan no *"
+                    value={reference}
+                    onChange={setReference}
+                    type="text"
+                    placeholder="e.g. INV/2026-08/0142"
+                  />
                   <div>
                     <label className="block text-[10px] font-semibold mb-1" style={{ color: "var(--text-muted)" }}>Get pass no (auto)</label>
                     <input
@@ -925,7 +967,8 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
         {/* ================= STEP 9 : IMS Entry Outward ================= */}
         {stepNum === 9 && (
           <>
-            {renderQuantityInputs()}
+            {/* CHANGE 4b — quantity comes from Step 8, no input asked */}
+            {renderLockedQuantities()}
             {renderStatusCheckbox()}
           </>
         )}
@@ -940,7 +983,8 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
                 </p>
               </div>
             )}
-            {renderQuantityInputs()}
+            {/* CHANGE 4b — quantity comes from Step 9, no input asked */}
+            {renderLockedQuantities()}
             {renderStatusCheckbox()}
           </>
         )}
@@ -1032,13 +1076,26 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-function TextInput({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (v: string) => void; type?: string }) {
+function TextInput({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder = "",
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+  placeholder?: string;
+}) {
   return (
     <div>
       <label className="block text-[10px] font-semibold mb-1" style={{ color: "var(--text-muted)" }}>{label}</label>
       <input
         type={type}
         value={value}
+        placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         className="w-full px-3 py-2 rounded-md text-xs outline-none"
         style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}
