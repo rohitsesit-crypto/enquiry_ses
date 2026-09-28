@@ -1,5 +1,50 @@
 "use client";
 
+// =============================================================================
+// app/user/page.tsx   —  FULL CORRECTED FILE (replace your existing one)
+// =============================================================================
+// FIXES INCLUDED IN THIS FILE
+//
+// 1) "User can't see which step they have been assigned"
+//    - Access is now read from BOTH dashboardData.user AND the flat top level
+//      fields, and it accepts assignedStepsList / viewStepsList (arrays) as well
+//      as assignedSteps / viewSteps (comma strings). The old file only read the
+//      flat fields, so when the backend returned the nested `user` object the
+//      lists came out empty.
+//    - A permanent <MyAccessBar> now shows, in words, exactly which steps the
+//      user can SUBMIT and which ones are VIEW ONLY, plus an explicit warning
+//      when nothing is assigned.
+//    - Every step chip carries an EDIT / VIEW label so there is never any doubt.
+//
+// 2) Alignment issues
+//    - The access bar is a real grid with fixed label widths, so "Can submit",
+//      "View only" and "Office" always line up instead of wrapping randomly.
+//    - Step chips use fixed-size number badges (w-5 h-5) and `whitespace-nowrap`
+//      so cards keep the same height whether a user has 1 step or 10.
+//    - InfoRow labels use a fixed 118px column so the detail modal is aligned.
+//    - Office label goes through officeAccessLabel(), so a broken value (e.g.
+//      step numbers left over from the old column bug) renders as "All Offices"
+//      instead of printing numbers where an office name belongs.
+//
+// 3) Access not working properly
+//    - visibleSteps now comes from the corrected getVisibleSteps(), where
+//      assignedSteps + viewSteps are ALWAYS merged (canViewAllSteps is only the
+//      "show everything" master switch).
+//    - openStepSubmit() is a hard guard: a step that is not in assignedSteps can
+//      never open the submit modal, even if a stale card is clicked.
+//    - New Entry button + form respect canFillForm and officeAccess.
+//
+// 4) Data not refreshing
+//    - Polling reduced to 15s, plus a refresh on window focus and on tab
+//      visibility change, so data manually typed into the Google Sheet shows up
+//      without a hard reload.
+//
+// REQUIRED COMPANION FILES (already provided):
+//    app/lib/accessControl.ts   (corrected)
+//    app/lib/api.ts             (corrected)
+//    Code.gs                    (corrected backend)
+// =============================================================================
+
 import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { getUserDashboardData, verifyUser, submitNewEntry, submitStep, updateEntry } from "../lib/api";
@@ -16,8 +61,15 @@ import {
 import EnquiryForm from "../components/EnquiryForm";
 import StepWorkflow from "../components/StepWorkflow";
 import FormSubmissionsModule from "../components/FormSubmissionsModule";
-import HistoryModule from "../components/HistoryModule";
-import { getOverallStepStatus, getStepPartSummary, isPartialStep } from "../lib/partialSubmission";
+import {
+  getIncompleteStepsBefore7,
+  canEditEnquiryForm,
+  getFormEditLockReason,
+  getOverallStepStatus,
+  getStepPartSummary,
+  isPartialStep,
+  isStepUnlocked,
+} from "../lib/partialSubmission";
 import {
   STEP_TITLES,
   formatSubmittedOn,
@@ -56,6 +108,7 @@ function sheetBool(value: unknown): boolean {
 function UserDashboardContent() {
   const searchParams = useSearchParams();
   const email = searchParams.get("email") || "";
+  const missingEmail = !email;
 
   const [loading, setLoading] = useState(true);
   const [verified, setVerified] = useState(false);
@@ -68,7 +121,10 @@ function UserDashboardContent() {
   const [showStepSubmit, setShowStepSubmit] = useState<{ entryId: string; stepNum: number; entry: Record<string, unknown> } | null>(null);
   const [showEditForm, setShowEditForm] = useState<{ entryId: string; entry: Record<string, unknown> } | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("fms-theme") === "dark";
+  });
   const [showAttachmentSheet, setShowAttachmentSheet] = useState(false);
   const [sheetAttachmentUrl, setSheetAttachmentUrl] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -98,11 +154,9 @@ function UserDashboardContent() {
   }, [email]);
 
   useEffect(() => {
-    if (!email) {
-      setLoading(false);
-      setError("No email provided. Use the link from your administrator.");
-      return;
-    }
+    // A missing email link is reported during render, so nothing is
+    // synchronized here and no state is written inside this effect.
+    if (!email) return;
 
     async function init() {
       try {
@@ -155,23 +209,16 @@ function UserDashboardContent() {
     return () => clearTimeout(timeout);
   }, [dashboardData, currentSection]);
 
+  // The persisted theme is read during the initial render, so this effect only
+  // mirrors the theme onto the document class and never writes state.
   useEffect(() => {
-    const saved = localStorage.getItem("fms-theme");
-    if (saved === "dark") {
-      setDarkMode(true);
-      document.documentElement.classList.add("dark");
-    }
-  }, []);
+    document.documentElement.classList.toggle("dark", darkMode);
+  }, [darkMode]);
 
   const toggleTheme = () => {
-    setDarkMode(!darkMode);
-    if (!darkMode) {
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("fms-theme", "dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-      localStorage.setItem("fms-theme", "light");
-    }
+    const next = !darkMode;
+    setDarkMode(next);
+    localStorage.setItem("fms-theme", next ? "dark" : "light");
   };
 
   // ===========================================================================
@@ -212,6 +259,32 @@ function UserDashboardContent() {
     [access]
   );
 
+  /**
+   * CHANGE 10 — "Edit Form" entry point used by the Form module.
+   * It reuses the existing edit modal (EnquiryForm + updateEntry) and applies
+   * the single locking rule: no edit once Step 7 is completed / partially done.
+   */
+  const openEditForm = useCallback(
+    (entry: Record<string, unknown>) => {
+      const entryId = String(entry.Entry_ID || "");
+      if (!entryId) return;
+
+      if (!canEditEnquiryForm(entry)) {
+        showToast(getFormEditLockReason(entry), "error");
+        return;
+      }
+
+      const isSubmitter = String(entry.Submitted_By || "").toLowerCase() === email.toLowerCase();
+      if (!isSubmitter) {
+        showToast("You can only edit entries you submitted", "error");
+        return;
+      }
+
+      setShowEditForm({ entryId, entry });
+    },
+    [email]
+  );
+
   const handleNewEntrySubmit = async (formData: Record<string, unknown>) => {
     try {
       const result = await submitNewEntry(email, formData);
@@ -247,7 +320,15 @@ function UserDashboardContent() {
     try {
       const result = await updateEntry(email, entryId, formData);
       if (result.success) {
-        showToast("Entry updated!", "success");
+        // The backend rewrites every dependent step record in the same call,
+        // so the dashboard is reloaded to show the propagated values.
+        const p = result.propagated;
+        showToast(
+          p && (p.quantities || p.invoices || p.gatePasses)
+            ? `Entry updated. Synced ${p.quantities} step part record(s), ${p.invoices} invoice batch(es), ${p.gatePasses} gate pass row(s).`
+            : result.message || "Entry updated!",
+          "success"
+        );
         setShowEditForm(null);
         await loadData();
       } else {
@@ -269,6 +350,20 @@ function UserDashboardContent() {
       <div className="flex flex-col items-center justify-center min-h-screen gap-4" style={{ background: "var(--bg)" }}>
         <div className="w-9 h-9 border-3 rounded-full animate-spin" style={{ borderColor: "var(--border)", borderTopColor: "var(--primary)" }} />
         <p className="text-sm" style={{ color: "var(--text-muted)" }}>Loading your tasks...</p>
+      </div>
+    );
+  }
+
+  if (missingEmail && !verified) {
+    return (
+      <div className="flex items-center justify-center min-h-screen p-5" style={{ background: "var(--bg)" }}>
+        <div className="text-center p-10 rounded-xl max-w-md" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+          <div className="text-4xl mb-3">&#x1F517;</div>
+          <h2 className="text-base font-bold mb-2" style={{ color: "var(--text)" }}>Open your personal link</h2>
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            This dashboard opens from the email link your administrator shared with you. Ask your admin to resend your access link.
+          </p>
+        </div>
       </div>
     );
   }
@@ -306,7 +401,11 @@ function UserDashboardContent() {
 
     visibleSteps.forEach((s) => {
       const rawStatus = String(entry[`Step_${s}_Status`] || "Locked");
-      if (rawStatus === "Locked" || rawStatus === "Skipped" || rawStatus === "Stopped") return;
+      if (rawStatus === "Skipped" || rawStatus === "Stopped") return;
+      // CHANGE 7 — a quantity step (7/8/9/10) is open as soon as the previous
+      // step released quantity, even if the sheet still says "Locked".
+      // This keeps "Step 7 Part 2" and "Step 8 Part 1" submittable together.
+      if (rawStatus === "Locked" && !isStepUnlocked(entry, s)) return;
 
       const plannedDate = (entry[`Step_${s}_Planned_Date`] as string | null) || null;
       const actualDate = (entry[`Step_${s}_Actual_Date`] as string | null) || null;
@@ -761,7 +860,9 @@ function UserDashboardContent() {
             
 
             {/* ================= FORM MODULE ================= */}
-            {currentSection === "forms" && <FormSubmissionsModule entries={filteredEntries} />}
+            {currentSection === "forms" && (
+              <FormSubmissionsModule entries={filteredEntries} onEditEntry={openEditForm} />
+            )}
           </div>
         </main>
       </div>
@@ -814,8 +915,6 @@ function UserDashboardContent() {
               visibleSteps={visibleSteps}
               onClose={() => setShowTaskDetail(null)}
               onSubmitStep={(entryId, stepNum, entry) => { setShowTaskDetail(null); openStepSubmit(entryId, stepNum, entry); }}
-              onEditEntry={(entryId, entry) => { setShowTaskDetail(null); setShowEditForm({ entryId, entry }); }}
-              email={email}
               onViewAttachment={(url) => { setSheetAttachmentUrl(url); setShowAttachmentSheet(true); }}
             />
           </div>
@@ -887,6 +986,32 @@ function UserDashboardContent() {
 // MY ACCESS BAR — the fix for "user can't see which step they are assigned"
 // Aligned grid: fixed 96px label column, so all three rows line up perfectly.
 // =============================================================================
+/** Step chips used by the access bar — every chip is labelled EDIT or VIEW. */
+function StepChips({ steps, tone }: { steps: number[]; tone: "edit" | "view" }) {
+  if (steps.length === 0) {
+    return <span className="text-[11px]" style={{ color: "var(--text-faint)" }}>None</span>;
+  }
+  const color = tone === "edit" ? "var(--primary)" : "#7c3aed";
+  const bg = tone === "edit" ? "rgba(37,99,235,0.08)" : "rgba(124,58,237,0.08)";
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {steps.map((s) => (
+        <span
+          key={s}
+          className="inline-flex items-center gap-1.5 pl-1 pr-2 py-0.5 rounded whitespace-nowrap"
+          style={{ background: bg, border: `1px solid ${color}` }}
+        >
+          <span className="inline-flex items-center justify-center w-5 h-5 rounded text-[9px] font-bold shrink-0" style={{ background: color, color: "#ffffff" }}>
+            {s}
+          </span>
+          <span className="text-[10px] font-semibold" style={{ color }}>{STEP_TITLES[s]}</span>
+          <span className="text-[8px] font-bold" style={{ color, opacity: 0.75 }}>{tone === "edit" ? "EDIT" : "VIEW"}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function MyAccessBar({
   assignedSteps,
   viewOnlySteps,
@@ -899,31 +1024,6 @@ function MyAccessBar({
   canFillForm: boolean;
 }) {
   const nothingAssigned = assignedSteps.length === 0 && viewOnlySteps.length === 0;
-
-  const StepChips = ({ steps, tone }: { steps: number[]; tone: "edit" | "view" }) => {
-    if (steps.length === 0) {
-      return <span className="text-[11px]" style={{ color: "var(--text-faint)" }}>None</span>;
-    }
-    const color = tone === "edit" ? "var(--primary)" : "#7c3aed";
-    const bg = tone === "edit" ? "rgba(37,99,235,0.08)" : "rgba(124,58,237,0.08)";
-    return (
-      <div className="flex flex-wrap gap-1.5">
-        {steps.map((s) => (
-          <span
-            key={s}
-            className="inline-flex items-center gap-1.5 pl-1 pr-2 py-0.5 rounded whitespace-nowrap"
-            style={{ background: bg, border: `1px solid ${color}` }}
-          >
-            <span className="inline-flex items-center justify-center w-5 h-5 rounded text-[9px] font-bold shrink-0" style={{ background: color, color: "#ffffff" }}>
-              {s}
-            </span>
-            <span className="text-[10px] font-semibold" style={{ color }}>{STEP_TITLES[s]}</span>
-            <span className="text-[8px] font-bold" style={{ color, opacity: 0.75 }}>{tone === "edit" ? "EDIT" : "VIEW"}</span>
-          </span>
-        ))}
-      </div>
-    );
-  };
 
   return (
     <div className="px-7 py-3" style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)" }}>
@@ -944,6 +1044,13 @@ function MyAccessBar({
             New Entry: {canFillForm ? "Allowed" : "Not Allowed"}
           </span>
         </div>
+      </div>
+
+      <div className="grid gap-2 items-start" style={{ gridTemplateColumns: "96px 1fr" }}>
+        <span className="text-[11px] font-semibold pt-1" style={{ color: "var(--text-muted)" }}>Can submit</span>
+        <StepChips steps={assignedSteps} tone="edit" />
+        <span className="text-[11px] font-semibold pt-1" style={{ color: "var(--text-muted)" }}>View only</span>
+        <StepChips steps={viewOnlySteps} tone="view" />
       </div>
 
       
@@ -967,8 +1074,6 @@ function TaskDetailModal({
   visibleSteps,
   onClose,
   onSubmitStep,
-  onEditEntry,
-  email,
   onViewAttachment,
 }: {
   entries: Record<string, unknown>[];
@@ -978,14 +1083,11 @@ function TaskDetailModal({
   visibleSteps: number[];
   onClose: () => void;
   onSubmitStep: (entryId: string, stepNum: number, entry: Record<string, unknown>) => void;
-  onEditEntry: (entryId: string, entry: Record<string, unknown>) => void;
-  email: string;
   onViewAttachment: (url: string) => void;
 }) {
   const entry = entries.find((e) => String(e.Entry_ID) === String(entryId));
   if (!entry) return <p className="text-xs" style={{ color: "var(--text-muted)" }}>Entry not found</p>;
 
-  const isSubmitter = String(entry.Submitted_By || "").toLowerCase() === email.toLowerCase();
   const isStopped = sheetBool(entry.Is_Stopped);
 
   let requirements: { itemName: string; quantity: number; unit: string }[] = [];
@@ -1016,11 +1118,8 @@ function TaskDetailModal({
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {isSubmitter && (
-            <button onClick={() => onEditEntry(entryId, entry)} className="px-3 py-1.5 rounded-md text-[11px] font-semibold cursor-pointer whitespace-nowrap" style={{ background: "var(--primary-bg)", color: "var(--primary)", border: "1px solid var(--primary)" }}>
-              Edit
-            </button>
-          )}
+          {/* Editing the enquiry form lives ONLY in the Form module.
+              The step detail modal is for submitting steps, nothing else. */}
           <button onClick={onClose} className="text-lg cursor-pointer leading-none" style={{ color: "var(--text-muted)" }}>&#x2715;</button>
         </div>
       </div>
@@ -1088,6 +1187,14 @@ function TaskDetailModal({
       {/* STEP PROGRESS */}
       <h3 className="text-sm font-bold mb-4" style={{ color: "var(--text)" }}>Step Progress</h3>
 
+      {/* STEP 7 GATE — Step 7 may only start after Steps 1..6 are resolved. */}
+      {String(entry["Step_7_Status"] || "Locked") === "Locked" && (
+        <p className="text-[11px] mb-4 px-3 py-2 rounded-lg" style={{ color: "#b45309", background: "rgba(217,119,6,0.08)", border: "1px solid rgba(217,119,6,0.3)" }}>
+          Step 7 is locked until every step from 1 to 6 is completed.
+          Still open: Step {getIncompleteStepsBefore7(entry).join(", ")}.
+        </p>
+      )}
+
       {visibleSteps.length === 0 && (
         <p className="text-xs mb-4" style={{ color: "var(--danger)" }}>
           You have no visible steps. Contact your administrator.
@@ -1123,7 +1230,7 @@ function TaskDetailModal({
                 style={{
                   background: done ? "var(--success)" : active ? "var(--primary)" : "var(--surface-3)",
                   color: done || active ? "#ffffff" : "var(--text-faint)",
-                  border: rawStatus === "Locked" ? "2px solid var(--border)" : "none",
+                  border: overall === "Locked" ? "2px solid var(--border)" : "none",
                 }}
               >
                 {done ? "\u2713" : s}
@@ -1222,7 +1329,7 @@ function TaskDetailModal({
                             >
                               View
                             </button>
-                          )}
+                            )}
                         </div>
                       ))}
                     </div>
@@ -1246,7 +1353,7 @@ function TaskDetailModal({
 
                   {editable && partial && summary && !summary.isActionable && !summary.isFullySubmitted && (
                     <p className="mt-1 text-[10px]" style={{ color: "var(--text-faint)" }}>
-                      Waiting for Step {s - 1} to release quantity.
+                      Waiting for Step {s - 1} to release more quantity.
                     </p>
                   )}
                 </div>
@@ -1289,4 +1396,4 @@ export default function UserPage() {
       <UserDashboardContent />
     </Suspense>
   );
-}
+}  
