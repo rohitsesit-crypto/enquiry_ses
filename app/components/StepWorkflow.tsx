@@ -27,7 +27,7 @@
 // =============================================================================
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { formatDate, formatSheetDateOnly, formatStorageDate } from "../lib/utils";
 import { uploadToDrive } from "../lib/driveUpload";
 import {
@@ -92,7 +92,20 @@ function cleanUrl(raw: string): string {
   return match ? match[0] : String(raw || "");
 }
 
-export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: StepWorkflowProps) {
+export default function StepWorkflow({ entry: rawEntry, stepNum: rawStepNum, onSubmit, onCancel }: StepWorkflowProps) {
+  // PRERENDER / BUILD FIX
+  // Every sheet field of this form is addressed with a dynamic key such as
+  // `Step_${stepNum}_Planned_Date`. When the component was mounted (or
+  // prerendered) without a resolved step number and entry, the key became
+  // `Step_undefined_Planned_Date` and the render crashed with
+  // "Cannot read properties of undefined (reading 'Step_undefined_Planned_Date')".
+  // `stepNum` is therefore normalised to a real step (1..10, otherwise 0) and
+  // `entry` to an object BEFORE the first lookup, and the component refuses to
+  // render below when either one is unresolved.
+  const step = Number(rawStepNum);
+  const stepNum = Number.isInteger(step) && step >= 1 && step <= 10 ? step : 0;
+  const entry: Record<string, unknown> =
+    rawEntry && typeof rawEntry === "object" ? rawEntry : ({} as Record<string, unknown>);
   const rule = STEP_RULES[stepNum];
   const partial = isPartialStep(stepNum);
 
@@ -111,7 +124,6 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
   const [payTerms, setPayTerms] = useState("");
 
   // Steps 7 / 8 / 9 / 10 part wise quantities (only Step 7 is editable now)
-  const [partialQuantities, setPartialQuantities] = useState<Record<string, string>>({});
   const [reference, setReference] = useState("");
 
   // Step 8 Dispatch form
@@ -148,16 +160,21 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
   const quantityLocked = stepNum >= 8;
   const quantitySourceStep = stepNum - 1; // 8 -> 7, 9 -> 8, 10 -> 9
 
-  // Pre-fill each item with its maximum submittable quantity
-  useEffect(() => {
-    if (!partial) return;
-    const initial: Record<string, string> = {};
-    itemProgress.forEach((item) => {
-      initial[item.itemName] = String(item.maxSubmittable);
-    });
-    setPartialQuantities(initial);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepNum]);
+  // Pre-fill comes from `itemProgress` (the quantity that is still PENDING for
+  // this step, so a later part never repeats what an earlier part submitted).
+  // It is DERIVED during render instead of being mirrored into state by an
+  // effect, and the user's own typing is stored per step + part so opening a
+  // new step or a new part always starts from the fresh pre-fill.
+  const [typedQuantities, setTypedQuantities] = useState<Record<string, string>>({});
+
+  const quantityKey = (item: StepItemProgress) => `${stepNum}:${item.submitted}:${item.itemName}`;
+
+  /** Value shown in the quantity box: the user's input, else the pre-fill. */
+  const getQuantityValue = (item: StepItemProgress): string => {
+    const typed = typedQuantities[quantityKey(item)];
+    if (typed !== undefined) return typed;
+    return item.maxSubmittable > 0 ? String(item.maxSubmittable) : "";
+  };
 
   /**
    * Quantity used for validation and for the submitted payload.
@@ -166,7 +183,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
    */
   const getItemQty = (item: StepItemProgress): number => {
     if (quantityLocked) return item.maxSubmittable;
-    return parseInt(partialQuantities[item.itemName] || "0") || 0;
+    return parseInt(getQuantityValue(item) || "0") || 0;
   };
 
   const allowedTotal = itemProgress.reduce((sum, item) => sum + item.maxSubmittable, 0);
@@ -455,7 +472,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
       )}
 
       {itemProgress.map((item, idx) => {
-        const value = partialQuantities[item.itemName] ?? "";
+        const value = getQuantityValue(item);
         const numeric = parseInt(value || "0") || 0;
         const invalid = numeric > item.maxSubmittable || numeric < 0;
         const itemBalance = item.maxSubmittable - numeric;
@@ -469,13 +486,26 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
                 {item.remaining > 0 ? ` · ${item.remaining} remain` : " · Completed"}
               </span>
             </div>
+            {/*
+              CHANGE 10 — PLAIN TEXT input (inputMode numeric), exactly like the
+              backend plain-text cells. A number spinner no longer appears and the
+              value can never be changed by an accidental scroll / slight touch.
+              Digits are the only accepted characters, so the quantity is still
+              always a clean whole number.
+            */}
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              autoComplete="off"
               value={value}
-              onChange={(e) => setPartialQuantities({ ...partialQuantities, [item.itemName]: e.target.value })}
-              placeholder={`Max ${item.maxSubmittable}`}
-              min="0"
-              max={item.maxSubmittable}
+              onChange={(e) =>
+                setTypedQuantities((prev) => ({
+                  ...prev,
+                  [quantityKey(item)]: e.target.value.replace(/[^0-9]/g, ""),
+                }))
+              }
+              placeholder={item.maxSubmittable > 0 ? `Remaining ${item.maxSubmittable}` : "0"}
               disabled={item.maxSubmittable <= 0}
               className="w-full px-3 py-2 rounded-md text-xs outline-none"
               style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)", opacity: item.maxSubmittable <= 0 ? 0.6 : 1 }}
@@ -564,7 +594,7 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
             <p className="mt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>
               {item.remaining === 0
                 ? "Fully completed for this step."
-                : `Waiting for Step ${quantitySourceStep} to release quantity.`}
+                : `Waiting for Step ${quantitySourceStep} to release more quantity.`}
             </p>
           )}
         </div>
@@ -585,6 +615,17 @@ export default function StepWorkflow({ entry, stepNum, onSubmit, onCancel }: Ste
   );
 
   // ---------------------------------------------------------------------------
+  // GUARD — placed after every hook so the hook order never changes, and before
+  // the first JSX that reads `STEP_RULES[stepNum]` / `rule.options`.
+  // ---------------------------------------------------------------------------
+  if (stepNum === 0 || !rawEntry) {
+    return (
+      <div className="p-4 rounded-lg text-xs" style={{ background: "var(--surface-2)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+        No step selected. Close this dialog and open the step again.
+      </div>
+    );
+  }
+
   return (
     <div>
       {/* HEADER */}
