@@ -18,7 +18,7 @@
 
 import { normalizeEntries } from './utils';
 
-const SCRIPT_URL = (process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || '').trim();
+const SCRIPT_URL = (process.env.APPS_SCRIPT_URL || '').trim();
 
 interface ApiOptions {
   method?: 'GET' | 'POST';
@@ -31,7 +31,7 @@ async function callApi<T>(action: string, options: ApiOptions = {}): Promise<T> 
 
   if (!SCRIPT_URL) {
     throw new Error(
-      'NEXT_PUBLIC_APPS_SCRIPT_URL is not set. Add it to .env.local and restart the dev server.'
+      'APPS_SCRIPT_URL is not set. Add it to .env.local and restart the dev server.'
     );
   }
 
