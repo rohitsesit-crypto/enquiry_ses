@@ -1,16 +1,37 @@
-
+// =============================================================================
+// app/components/FormSubmissionsModule.tsx   (REPLACE THE WHOLE FILE)
+// =============================================================================
+// CHANGE F  — a dedicated "Form" module that lists EVERY form submission with
+//             all details, exactly like the primary information view modal.
+//             Latest submission is shown on TOP, oldest at the BOTTOM.
+//
+// CHANGE 11 — "Edit Form" rule relaxed to exactly what was asked:
+//             the button is shown while STEP 7 IS STILL PENDING (not completed
+//             and not partially submitted), no matter what state Steps 1..6 are
+//             in. It disappears only once Step 7 has actually been submitted
+//             (fully or partially), because from that moment the Step 7
+//             quantity chain is derived from the form data.
+//             The single source of truth is canEditEnquiryForm() in
+//             app/lib/partialSubmission.ts — this file only renders it.
+// =============================================================================
 "use client";
 
 import React, { useMemo, useState } from "react";
 import { formatSheetDateOnly, parseDateString } from "../lib/utils";
 import { formatSubmittedOn, getGatePassNo, getPurchaseOrderDetails, getDispatchDetails } from "../lib/workflow";
-import { getRequirements } from "../lib/partialSubmission";
+import { canEditEnquiryForm, getFormEditLockReason, getRequirements } from "../lib/partialSubmission";
 
 interface FormSubmissionsModuleProps {
   entries: Record<string, unknown>[];
+  /**
+   * CHANGE 10 — opens the SAME edit form (EnquiryForm + updateEntry) that the
+   * user page already provides for the enquiry details, directly from here.
+   * Omit it for read-only listings such as the admin dashboard.
+   */
+  onEditEntry?: (entry: Record<string, unknown>) => void;
 }
 
-export default function FormSubmissionsModule({ entries }: FormSubmissionsModuleProps) {
+export default function FormSubmissionsModule({ entries, onEditEntry }: FormSubmissionsModuleProps) {
   const [search, setSearch] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -74,6 +95,7 @@ export default function FormSubmissionsModule({ entries }: FormSubmissionsModule
               entry={entry}
               isOpen={isOpen}
               onToggle={() => setOpenId(isOpen ? null : entryId)}
+              onEdit={onEditEntry ? () => onEditEntry(entry) : undefined}
             />
           );
         })}
@@ -86,12 +108,23 @@ function FormSubmissionCard({
   entry,
   isOpen,
   onToggle,
+  onEdit,
 }: {
   entry: Record<string, unknown>;
   isOpen: boolean;
   onToggle: () => void;
+  /** Absent on read-only listings, which hides the edit action entirely. */
+  onEdit?: () => void;
 }) {
   const requirements = getRequirements(entry);
+
+  /**
+   * CHANGE 11 — the ONE condition for the "Edit Form" option:
+   *   Step 7 still Pending / Locked  -> editable (Steps 1..6 may be anything)
+   *   Step 7 Completed or Partially  -> locked
+   */
+  const canEdit = canEditEnquiryForm(entry);
+
   const po = getPurchaseOrderDetails(entry);
   const dispatch = getDispatchDetails(entry);
   const gatePassNo = getGatePassNo(entry);
@@ -103,7 +136,9 @@ function FormSubmissionCard({
 
   return (
     <div className="rounded-xl overflow-hidden" style={{ background: "var(--surface)", border: "1px solid var(--border)", borderLeft: `4px solid ${statusColor}` }}>
-      <button
+      {/* Header is a clickable div (not a <button>) so the "Edit Form" action can
+          live inside it without nesting one interactive element in another. */}
+      <div
         onClick={onToggle}
         className="w-full text-left px-4 py-3 cursor-pointer"
         style={{ background: "transparent" }}
@@ -132,13 +167,44 @@ function FormSubmissionCard({
             <span className="text-[10px] font-bold px-2 py-0.5 rounded" style={{ background: "var(--surface-2)", color: statusColor, border: "1px solid var(--border)" }}>
               {statusLabel}
             </span>
+
+            {/* CHANGE 11 — Edit Form option, visible while Step 7 is still pending */}
+            {onEdit && (canEdit ? (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                className="text-[10px] font-bold px-2.5 py-1 rounded cursor-pointer whitespace-nowrap"
+                style={{ background: "var(--primary-bg)", color: "var(--primary)", border: "1px solid var(--primary)" }}
+              >
+                Edit Form
+              </button>
+            ) : (
+              <span
+                className="text-[10px] font-bold px-2 py-1 rounded whitespace-nowrap"
+                style={{ background: "rgba(100,100,100,0.08)", color: "var(--text-faint)", border: "1px solid var(--border)" }}
+              >
+                Edit Locked
+              </span>
+            ))}
+
             <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>{isOpen ? "Hide" : "View"}</span>
           </div>
         </div>
-      </button>
+      </div>
 
       {isOpen && (
         <div className="px-4 pb-4 space-y-4" style={{ borderTop: "1px solid var(--border)" }}>
+          {/* CHANGE 11 — why the edit option is available or not */}
+          {canEdit ? (
+            <p className="pt-3 text-[10px] font-semibold" style={{ color: "var(--primary)" }}>
+              Step 7 is still Pending — this enquiry form can still be edited (Steps 1 to 6 may be in any state).
+            </p>
+          ) : (
+            <p className="pt-3 text-[10px] font-semibold" style={{ color: "var(--text-faint)" }}>
+              {getFormEditLockReason(entry)}
+            </p>
+          )}
+
           {/* PRIMARY INFORMATION — same layout as the view modal */}
           <Section title="Primary Information">
             <Row label="Entry ID" value={String(entry.Entry_ID || "")} />
