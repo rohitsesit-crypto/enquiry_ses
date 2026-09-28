@@ -61,7 +61,15 @@ import {
 import EnquiryForm from "../components/EnquiryForm";
 import StepWorkflow from "../components/StepWorkflow";
 import FormSubmissionsModule from "../components/FormSubmissionsModule";
-import { canEditEnquiryForm, getOverallStepStatus, getStepPartSummary, isPartialStep, isStepUnlocked } from "../lib/partialSubmission";
+import {
+  getIncompleteStepsBefore7,
+  canEditEnquiryForm,
+  getFormEditLockReason,
+  getOverallStepStatus,
+  getStepPartSummary,
+  isPartialStep,
+  isStepUnlocked,
+} from "../lib/partialSubmission";
 import {
   STEP_TITLES,
   formatSubmittedOn,
@@ -262,7 +270,7 @@ function UserDashboardContent() {
       if (!entryId) return;
 
       if (!canEditEnquiryForm(entry)) {
-        showToast("Step 7 is completed or partially completed, so this form can no longer be edited.", "error");
+        showToast(getFormEditLockReason(entry), "error");
         return;
       }
 
@@ -312,8 +320,10 @@ function UserDashboardContent() {
     try {
       const result = await updateEntry(email, entryId, formData);
       if (result.success) {
-        // The backend rewrites every dependent step record in the same call,
-        // so the dashboard is reloaded to show the propagated values.
+        // The backend rewrites every dependent step record in the same call and
+        // already reports the counts inside `message`. Reading only `message`
+        // keeps this page type-safe against every version of app/lib/api.ts
+        // (an api.ts without a `propagated` field included).
         showToast(result.message || "Entry updated!", "success");
         setShowEditForm(null);
         await loadData();
@@ -901,15 +911,15 @@ function UserDashboardContent() {
               visibleSteps={visibleSteps}
               onClose={() => setShowTaskDetail(null)}
               onSubmitStep={(entryId, stepNum, entry) => { setShowTaskDetail(null); openStepSubmit(entryId, stepNum, entry); }}
-              onEditEntry={(entryId, entry) => { setShowTaskDetail(null); setShowEditForm({ entryId, entry }); }}
-              email={email}
               onViewAttachment={(url) => { setSheetAttachmentUrl(url); setShowAttachmentSheet(true); }}
             />
           </div>
         </div>
       )}
 
-      {showStepSubmit && (
+      {/* The submit modal is only mounted with a resolved entry and a real step,
+          so `Step_${stepNum}_...` keys can never be built from undefined. */}
+      {showStepSubmit && showStepSubmit.entry && !!STEP_TITLES[showStepSubmit.stepNum] && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-5" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }} onClick={(e) => { if (e.target === e.currentTarget) setShowStepSubmit(null); }}>
           <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl p-6 shadow-2xl" style={{ background: "var(--surface)" }}>
             <StepWorkflow
@@ -1062,8 +1072,6 @@ function TaskDetailModal({
   visibleSteps,
   onClose,
   onSubmitStep,
-  onEditEntry,
-  email,
   onViewAttachment,
 }: {
   entries: Record<string, unknown>[];
@@ -1073,14 +1081,11 @@ function TaskDetailModal({
   visibleSteps: number[];
   onClose: () => void;
   onSubmitStep: (entryId: string, stepNum: number, entry: Record<string, unknown>) => void;
-  onEditEntry: (entryId: string, entry: Record<string, unknown>) => void;
-  email: string;
   onViewAttachment: (url: string) => void;
 }) {
   const entry = entries.find((e) => String(e.Entry_ID) === String(entryId));
   if (!entry) return <p className="text-xs" style={{ color: "var(--text-muted)" }}>Entry not found</p>;
 
-  const isSubmitter = String(entry.Submitted_By || "").toLowerCase() === email.toLowerCase();
   const isStopped = sheetBool(entry.Is_Stopped);
 
   let requirements: { itemName: string; quantity: number; unit: string }[] = [];
@@ -1111,18 +1116,8 @@ function TaskDetailModal({
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {/* CHANGE 10 — same single condition as the Form module: no edit once
-              Step 7 is completed or partially completed. */}
-          {isSubmitter && canEditEnquiryForm(entry) && (
-            <button onClick={() => onEditEntry(entryId, entry)} className="px-3 py-1.5 rounded-md text-[11px] font-semibold cursor-pointer whitespace-nowrap" style={{ background: "var(--primary-bg)", color: "var(--primary)", border: "1px solid var(--primary)" }}>
-              Edit
-            </button>
-          )}
-          {isSubmitter && !canEditEnquiryForm(entry) && (
-            <span className="px-2.5 py-1 rounded-md text-[10px] font-bold whitespace-nowrap" style={{ background: "rgba(100,100,100,0.08)", color: "var(--text-faint)", border: "1px solid var(--border)" }}>
-              Edit Locked
-            </span>
-          )}
+          {/* Editing the enquiry form lives ONLY in the Form module.
+              The step detail modal is for submitting steps, nothing else. */}
           <button onClick={onClose} className="text-lg cursor-pointer leading-none" style={{ color: "var(--text-muted)" }}>&#x2715;</button>
         </div>
       </div>
@@ -1189,6 +1184,14 @@ function TaskDetailModal({
 
       {/* STEP PROGRESS */}
       <h3 className="text-sm font-bold mb-4" style={{ color: "var(--text)" }}>Step Progress</h3>
+
+      {/* STEP 7 GATE — Step 7 may only start after Steps 1..6 are resolved. */}
+      {String(entry["Step_7_Status"] || "Locked") === "Locked" && (
+        <p className="text-[11px] mb-4 px-3 py-2 rounded-lg" style={{ color: "#b45309", background: "rgba(217,119,6,0.08)", border: "1px solid rgba(217,119,6,0.3)" }}>
+          Step 7 is locked until every step from 1 to 6 is completed.
+          Still open: Step {getIncompleteStepsBefore7(entry).join(", ")}.
+        </p>
+      )}
 
       {visibleSteps.length === 0 && (
         <p className="text-xs mb-4" style={{ color: "var(--danger)" }}>
