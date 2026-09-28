@@ -139,6 +139,57 @@ export function isStepCompletedInSheet(entry: EntryRecord, stepNum: number): boo
   return getRawStepStatus(entry, stepNum) === 'Completed';
 }
 
+// -----------------------------------------------------------------------------
+// STEP 7 GATE  (requirement: Step 7 cannot be done before Steps 1 to 6)
+// -----------------------------------------------------------------------------
+// Steps 1..6 count as RESOLVED when they are "Completed", or "Skipped" because
+// the routing rules bypassed them (Step 1 "Quoted" skips Steps 2 and 3, etc.).
+// Anything else (Locked / Pending / Stopped) keeps Step 7 closed.
+// -----------------------------------------------------------------------------
+
+/** Step numbers in 1..6 that are still not Completed / Skipped. */
+export function getIncompleteStepsBefore7(entry: EntryRecord): number[] {
+  const open: number[] = [];
+  for (let s = 1; s <= 6; s++) {
+    const status = getRawStepStatus(entry, s);
+    if (status !== 'Completed' && status !== 'Skipped') open.push(s);
+  }
+  return open;
+}
+
+/** true => every step from 1 to 6 is Completed or legitimately Skipped. */
+export function areSteps1to6Complete(entry: EntryRecord): boolean {
+  return getIncompleteStepsBefore7(entry).length === 0;
+}
+
+/**
+ * CHANGE 7 — a quantity step is OPEN as soon as the previous step released
+ * some quantity to it, even if the sheet still says "Locked".
+ *
+ * This is what keeps BOTH of these submittable at the same time:
+ *      Step 7 Part 2  (the 50 that is still pending in Step 7)
+ *      Step 8 Part 1  (the 50 that Step 7 already released)
+ * Neither of them is ever locked because of the other one.
+ *
+ * CHANGE 11 — STEP 7 IS THE ONE EXCEPTION.
+ * Step 7 is the first quantity step, so there is no earlier quantity to release
+ * anything to it: the old "released quantity" rule made Step 7 look open while
+ * Steps 1..6 were still running. Step 7 is therefore gated ONLY by Steps 1..6.
+ */
+export function isStepUnlocked(entry: EntryRecord, stepNum: number): boolean {
+  const step = Number(stepNum);
+  const rawStatus = getRawStepStatus(entry, step);
+  if (rawStatus === 'Skipped' || rawStatus === 'Stopped') return false;
+
+  // STEP 7 GATE — never opened by a released quantity, only by Steps 1..6.
+  if (step === 7) return areSteps1to6Complete(entry);
+
+  if (rawStatus !== 'Locked') return true;
+  if (!isPartialStep(step)) return false;
+  // CHANGE 9 — opened ONLY by the immediately previous step's finished quantity
+  return getStepReleasedQuantity(entry, step) > 0;
+}
+
 /** Requirement items of the entry (the total quantity source of truth) */
 export function getRequirements(entry: EntryRecord): RequirementItem[] {
   return parseArray(entry?.Requirements_JSON).map((r) => ({
@@ -154,7 +205,7 @@ export function getStepTotalQuantity(entry: EntryRecord): number {
 }
 
 /** Target quantity a step must reach to be Completed = the form quantity */
-export function getStepTargetQuantity(entry: EntryRecord, _stepNum?: number): number {
+export function getStepTargetQuantity(entry: EntryRecord): number {
   return getStepTotalQuantity(entry);
 }
 
@@ -316,6 +367,13 @@ export function getStepItemProgress(entry: EntryRecord, stepNum: number): StepIt
     if (done === 0 && completedInSheet) done = req.quantity;
 
     const remaining = Math.max(0, req.quantity - done);
+    // CHANGE 9 — STEP CHAIN RULE (as confirmed by the user)
+    // A quantity step can only submit what the PREVIOUS step already finished:
+    //      Step 7 Part 1 done (50)  ->  Step 8 Part 1 active for 50
+    //      Step 8 Part 1 done (50)  ->  Step 9 Part 1 active for 50
+    //      Step 9 Part 1 done (50)  ->  Step 10 Part 1 active for 50
+    // Step 8 Part 2 therefore waits until Step 7 Part 2 is submitted.
+    // Step 7 itself is never gated, it always works on the form quantity.
     const availableFromPrevious = released
       ? Math.max(0, (released[req.itemName] || 0) - done)
       : remaining;
@@ -380,8 +438,14 @@ export function getPendingPart(entry: EntryRecord, stepNum: number): StepPart | 
 export function getOverallStepStatus(entry: EntryRecord, stepNum: number): string {
   const rawStatus = getRawStepStatus(entry, stepNum);
   if (!isPartialStep(stepNum)) return rawStatus;
-  if (rawStatus === 'Locked' || rawStatus === 'Skipped' || rawStatus === 'Stopped') return rawStatus;
+  if (rawStatus === 'Skipped' || rawStatus === 'Stopped') return rawStatus;
   if (rawStatus === 'Completed') return 'Completed';
+  // CHANGE 11 — Step 7 stays Locked until Steps 1..6 are resolved, even if the
+  // sheet carries a stale "Pending" value.
+  if (Number(stepNum) === 7 && !areSteps1to6Complete(entry)) return 'Locked';
+  // CHANGE 7 — "Locked" in the sheet still means OPEN once the previous step
+  // released quantity, so Step 8/9/10 Part 1 never waits for the sheet.
+  if (rawStatus === 'Locked' && !isStepUnlocked(entry, stepNum)) return 'Locked';
 
   const total = getStepTotalQuantity(entry);
   if (total <= 0) return rawStatus;
@@ -406,8 +470,9 @@ export function getStepPartSummary(entry: EntryRecord, stepNum: number): StepPar
   const submittedQuantity = partsQuantity > 0 ? partsQuantity : (completedInSheet ? total : 0);
   const pendingPart = getPendingPart(entry, stepNum);
   const maxSubmittable = getStepMaxSubmittable(entry, stepNum);
-  const rawStatus = getRawStepStatus(entry, stepNum);
-  const unlocked = rawStatus !== 'Locked' && rawStatus !== 'Skipped' && rawStatus !== 'Stopped';
+  // CHANGE 7 — unlocked as soon as the previous step released quantity, so
+  // "Step 7 Part 2" and "Step 8 Part 1" stay submittable at the same time.
+  const unlocked = isStepUnlocked(entry, stepNum);
 
   return {
     stepNumber: Number(stepNum),
@@ -531,6 +596,74 @@ export function buildPartialPayload(options: {
     attachment,
     remark,
   };
+}
+
+// -----------------------------------------------------------------------------
+// FORM MODULE EDIT RULE  (user page → Form module → "Edit Form")   CHANGE 10
+// -----------------------------------------------------------------------------
+// ONE condition only, exactly as requested:
+//   * Step 7 Completed            -> the form can NOT be edited any more
+//   * Step 7 Partially Submitted  -> the form can NOT be edited any more
+//   * any earlier stage (1..6)    -> the "Edit Form" option IS shown
+// The edit itself still reuses the existing EnquiryForm + updateEntry flow.
+// -----------------------------------------------------------------------------
+
+/** Current step of the entry, falling back to the highest started step. */
+export function getEntryCurrentStep(entry: EntryRecord): number {
+  const explicit = toNumber(entry?.Current_Step);
+  if (explicit >= 1 && explicit <= 10) return explicit;
+
+  let highest = 0;
+  for (let s = 1; s <= 10; s++) {
+    const status = getRawStepStatus(entry, s);
+    if (status === 'Pending' || status === 'Completed' || status === 'Partially Submitted') {
+      highest = s;
+    }
+  }
+  return highest;
+}
+
+/** Step 7 already completed OR partially completed => the enquiry form is locked. */
+export function isStep7CompletedOrPartiallySubmitted(entry: EntryRecord): boolean {
+  if (getRawStepStatus(entry, 7) === 'Completed') return true;
+
+  const answer = toText(entry?.Step_7_Condition_Answer).toLowerCase();
+  if (answer === 'yes' || answer === 'partially submitted') return true;
+
+  // part records (or the legacy Step 7 invoice batches) prove a submission
+  if (getStepParts(entry, 7).length > 0) return true;
+  if (getSubmittedQuantity(entry, 7) > 0) return true;
+
+  return false;
+}
+
+/**
+ * The single condition behind the Form module's "Edit Form" button.
+ *
+ * CHANGE 11 — exactly one condition: STEP 7 MUST STILL BE PENDING.
+ *   Step 7 still Pending (or still Locked) -> the form IS editable, no matter
+ *                                             what state Steps 1..6 are in
+ *                                             (running, completed, skipped).
+ *   Step 7 Completed or Partially Submitted -> the form is LOCKED, because the
+ *                                             Step 7 quantity chain is derived
+ *                                             from Requirements_JSON.
+ *
+ * The old `current >= 1 && current <= 6` bound was removed: it also hid the
+ * button when Steps 1..6 were finished and Step 7 was the current pending step.
+ */
+export function canEditEnquiryForm(entry: EntryRecord): boolean {
+  return !isStep7CompletedOrPartiallySubmitted(entry);
+}
+
+/** Human readable reason shown when the "Edit Form" option is locked. */
+export function getFormEditLockReason(entry: EntryRecord): string {
+  if (getRawStepStatus(entry, 7) === 'Completed') {
+    return 'Step 7 is Completed, so this form can no longer be edited.';
+  }
+  if (getStepParts(entry, 7).length > 0 || getSubmittedQuantity(entry, 7) > 0) {
+    return 'Step 7 is Partially Submitted, so this form can no longer be edited.';
+  }
+  return 'Step 7 is completed or partially completed, so this form can no longer be edited.';
 }
 
 // -----------------------------------------------------------------------------
