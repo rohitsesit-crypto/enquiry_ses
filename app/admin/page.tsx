@@ -8,6 +8,7 @@ import { STEP_NAMES } from "../lib/types";
 import type { SyncState, SyncNotification, HolidayEntry } from "../lib/types";
 import { createSyncManager, DataSyncManager } from "../lib/dataSync";
 import { formatRelativeTime } from "../lib/utils";
+import { getEnquiryId } from "../lib/enquiryId";
 import { StepAccessCell, OfficeAccessCell, AccessFlagsCell } from "../components/UserAccessCells";
 
 // =============================================================================
@@ -24,15 +25,17 @@ import { StepAccessCell, OfficeAccessCell, AccessFlagsCell } from "../components
 
 type StepMode = "edit" | "view" | "both" | "hidden";
 
+type AdminTab = "users" | "sales" | "entries" | "forms" | "holidays";
+
 function AdminDashboardContent() {
   const searchParams = useSearchParams();
   const emailFromUrl = searchParams.get("email") || "";
 
   const [email, setEmail] = useState(emailFromUrl);
   const [authenticated, setAuthenticated] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(Boolean(emailFromUrl));
   const [adminData, setAdminData] = useState<Record<string, unknown> | null>(null);
-  const [activeTab, setActiveTab] = useState<"users" | "sales" | "entries" | "forms" | "holidays">("users");
+  const [activeTab, setActiveTab] = useState<AdminTab>("users");
 
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
@@ -61,6 +64,7 @@ function AdminDashboardContent() {
   // Holidays & Sundays state
   const [holidaysData, setHolidaysData] = useState<{ holidays: HolidayEntry[]; sundays: string[] }>({ holidays: [], sundays: [] });
   const [loadingHolidays, setLoadingHolidays] = useState(false);
+  const [holidaysLoaded, setHolidaysLoaded] = useState(false);
 
   // Real-time sync state
   const [syncState, setSyncState] = useState<SyncState>({
@@ -134,11 +138,17 @@ function AdminDashboardContent() {
   }, []);
 
   useEffect(() => {
-    if (emailFromUrl) {
-      setEmail(emailFromUrl);
-      setLoading(true);
-      loadAdminData(emailFromUrl).finally(() => setLoading(false));
-    }
+    // An emailed admin link pre-fills both the email field and the loading flag,
+    // so this effect only clears the flag once the admin lookup settles.
+    if (!emailFromUrl) return;
+    let cancelled = false;
+    void (async () => {
+      await loadAdminData(emailFromUrl);
+      if (!cancelled) setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [emailFromUrl, loadAdminData]);
 
   const handleLogin = async () => {
@@ -155,28 +165,44 @@ function AdminDashboardContent() {
     }
   };
 
-  const loadHolidaysData = useCallback(async () => {
-    setLoadingHolidays(true);
-    try {
-      const result = await getHolidaysAndSundays();
-      if (result.success) {
-        setHolidaysData({
-          holidays: result.holidays || [],
-          sundays: result.sundays || [],
-        });
-      }
-    } catch {
-      console.error("Failed to load holidays data");
-    } finally {
-      setLoadingHolidays(false);
-    }
+  // Holidays & Sundays load when the Holidays tab is opened and on manual refresh.
+  const applyHolidays = useCallback((result: { holidays?: HolidayEntry[]; sundays?: string[] }) => {
+    setHolidaysData({
+      holidays: result.holidays || [],
+      sundays: result.sundays || [],
+    });
+    setLoadingHolidays(false);
   }, []);
 
-  useEffect(() => {
-    if (activeTab === "holidays" && authenticated && holidaysData.holidays.length === 0 && holidaysData.sundays.length === 0) {
-      loadHolidaysData();
+  const fetchHolidaysData = useCallback(async () => {
+    try {
+      const result = await getHolidaysAndSundays();
+      if (result.success) applyHolidays(result);
+    } catch (error) {
+      console.error("Failed to load holidays data", error);
+    } finally {
+      setLoadingHolidays(false);
+      setHolidaysLoaded(true);
     }
-  }, [activeTab, authenticated, holidaysData.holidays.length, holidaysData.sundays.length, loadHolidaysData]);
+  }, [applyHolidays]);
+
+  const handleRefreshHolidays = () => {
+    setLoadingHolidays(true);
+    setHolidaysLoaded(false);
+    void fetchHolidaysData();
+  };
+
+  /**
+   * Holidays & Sundays load when the Holidays tab is opened and on manual refresh.
+   * The load runs from the click handler (not an effect) so it never fires during
+   * render, and only once per session unless the admin refreshes.
+   */
+  const handleTabChange = (tab: AdminTab) => {
+    setActiveTab(tab);
+    if (tab !== "holidays" || !authenticated || holidaysLoaded) return;
+    setLoadingHolidays(true);
+    void fetchHolidaysData();
+  };
 
   const handleAddUser = async () => {
     if (!newUserEmail.trim() || !newUserName.trim()) {
@@ -475,7 +501,7 @@ function AdminDashboardContent() {
         {(["users", "sales", "entries", "forms", "holidays"] as const).map((tab) => (
           <button
             key={tab}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => handleTabChange(tab)}
             className="px-4 py-2.5 text-xs font-semibold rounded-t-lg transition-all cursor-pointer"
             style={{
               background: activeTab === tab ? "var(--surface)" : "transparent",
@@ -661,7 +687,11 @@ function AdminDashboardContent() {
                 <tbody>
                   {entries.map((entry, idx) => (
                     <tr key={idx} style={{ borderBottom: "1px solid var(--border-light)" }}>
-                      <td className="py-2 px-2 font-mono" style={{ color: "var(--primary)" }}>{String(entry.Entry_ID)}</td>
+                      {/* ENQUIRY ID FIX — a blank sheet cell no longer prints
+                          "undefined"/empty in the admin table. */}
+                      <td className="py-2 px-2 font-mono" style={{ color: "var(--primary)" }}>
+                        {getEnquiryId(entry, idx)}
+                      </td>
                       <td className="py-2 px-2">
                         {entry.Challan_Number ? (
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: "var(--primary-bg)", color: "var(--primary)" }}>
@@ -702,7 +732,7 @@ function AdminDashboardContent() {
               </p>
             </div>
 
-            {loadingHolidays ? (
+            {loadingHolidays || !holidaysLoaded ? (
               <div className="flex flex-col items-center gap-3 py-12">
                 <div className="w-8 h-8 border-3 rounded-full animate-spin" style={{ borderColor: "var(--border)", borderTopColor: "var(--primary)" }} />
                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>Loading holidays &amp; Sundays...</p>
@@ -718,7 +748,7 @@ function AdminDashboardContent() {
                       </span>
                     </h3>
                     <button
-                      onClick={loadHolidaysData}
+                      onClick={handleRefreshHolidays}
                       className="text-[10px] px-2.5 py-1 rounded font-semibold cursor-pointer"
                       style={{ background: "var(--primary-bg)", color: "var(--primary)", border: "1px solid var(--primary)" }}
                     >
