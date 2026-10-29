@@ -1,25 +1,17 @@
 // =============================================================================
-// app/components/FormSubmissionsModule.tsx   (REPLACE THE WHOLE FILE)
+// app/components/FormSubmissionsModule.tsx   (NEW FILE — create it)
 // =============================================================================
-// CHANGE F  — a dedicated "Form" module that lists EVERY form submission with
-//             all details, exactly like the primary information view modal.
-//             Latest submission is shown on TOP, oldest at the BOTTOM.
-//
-// CHANGE 11 — "Edit Form" rule relaxed to exactly what was asked:
-//             the button is shown while STEP 7 IS STILL PENDING (not completed
-//             and not partially submitted), no matter what state Steps 1..6 are
-//             in. It disappears only once Step 7 has actually been submitted
-//             (fully or partially), because from that moment the Step 7
-//             quantity chain is derived from the form data.
-//             The single source of truth is canEditEnquiryForm() in
-//             app/lib/partialSubmission.ts — this file only renders it.
+// CHANGE F — a dedicated "Form" module that lists EVERY form submission with
+// all details, exactly like the primary information view modal.
+// Latest submission is shown on TOP, oldest at the BOTTOM.
 // =============================================================================
 "use client";
 
 import React, { useMemo, useState } from "react";
 import { formatSheetDateOnly, parseDateString } from "../lib/utils";
+import { getEnquiryId } from "../lib/enquiryId";
 import { formatSubmittedOn, getGatePassNo, getPurchaseOrderDetails, getDispatchDetails } from "../lib/workflow";
-import { canEditEnquiryForm, getFormEditLockReason, getRequirements } from "../lib/partialSubmission";
+import { canEditEnquiryForm, getEntryCurrentStep, getRequirements } from "../lib/partialSubmission";
 
 interface FormSubmissionsModuleProps {
   entries: Record<string, unknown>[];
@@ -117,14 +109,11 @@ function FormSubmissionCard({
   onEdit?: () => void;
 }) {
   const requirements = getRequirements(entry);
-
   /**
-   * CHANGE 11 — the ONE condition for the "Edit Form" option:
-   *   Step 7 still Pending / Locked  -> editable (Steps 1..6 may be anything)
-   *   Step 7 Completed or Partially  -> locked
+   * CHANGE 10 — the ONE condition for the "Edit Form" option:
+   * steps 1..6 -> editable, Step 7 completed / partially submitted -> locked.
    */
   const canEdit = canEditEnquiryForm(entry);
-
   const po = getPurchaseOrderDetails(entry);
   const dispatch = getDispatchDetails(entry);
   const gatePassNo = getGatePassNo(entry);
@@ -147,7 +136,7 @@ function FormSubmissionCard({
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] font-mono font-bold" style={{ color: "var(--primary)" }}>
-                {String(entry.Entry_ID || "")}
+                {getEnquiryId(entry)}
               </span>
               <span className="text-[13px] font-bold" style={{ color: "var(--text)" }}>
                 {String(entry.Company_Name || "")}
@@ -168,7 +157,7 @@ function FormSubmissionCard({
               {statusLabel}
             </span>
 
-            {/* CHANGE 11 — Edit Form option, visible while Step 7 is still pending */}
+            {/* CHANGE 10 — Edit Form option, only while the enquiry is at Step 1..6 */}
             {onEdit && (canEdit ? (
               <button
                 type="button"
@@ -194,20 +183,20 @@ function FormSubmissionCard({
 
       {isOpen && (
         <div className="px-4 pb-4 space-y-4" style={{ borderTop: "1px solid var(--border)" }}>
-          {/* CHANGE 11 — why the edit option is available or not */}
+          {/* CHANGE 10 — why the edit option is available or not */}
           {canEdit ? (
             <p className="pt-3 text-[10px] font-semibold" style={{ color: "var(--primary)" }}>
-              Step 7 is still Pending — this enquiry form can still be edited (Steps 1 to 6 may be in any state).
+              Step {getEntryCurrentStep(entry)} — this form can still be edited.
             </p>
           ) : (
             <p className="pt-3 text-[10px] font-semibold" style={{ color: "var(--text-faint)" }}>
-              {getFormEditLockReason(entry)}
+              Step 7 is completed or partially completed, so this form can no longer be edited.
             </p>
           )}
 
           {/* PRIMARY INFORMATION — same layout as the view modal */}
           <Section title="Primary Information">
-            <Row label="Entry ID" value={String(entry.Entry_ID || "")} />
+            <Row label="Entry ID" value={getEnquiryId(entry)} />
             <Row label="Serial No" value={String(entry.Serial_No || "")} />
             <Row label="Submitted On" value={formatSubmittedOn(entry.Timestamp)} />
             <Row label="Submitted By" value={String(entry.Submitted_By || "")} />
