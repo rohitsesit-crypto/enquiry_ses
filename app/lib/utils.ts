@@ -1,6 +1,8 @@
 // Utility functions for Enquiry Capture O2D
 // Enhanced with robust data normalization for manual Google Sheet entries
 
+import { withResolvedEntryIds } from './enquiryId';
+
 /** Short month names used for all UI date rendering: 28 Jul 2026 */
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -522,10 +524,18 @@ export function normalizeEntry(entry: Record<string, unknown>): Record<string, u
 
 /**
  * Normalizes an array of entries from Google Sheets.
- * Filters out completely empty rows.
+ * Filters out completely empty rows, then backfills a usable Entry_ID.
+ *
+ * ENQUIRY ID FIX
+ * A blank Entry_ID cell used to render as a dangling "·" on the dashboard and
+ * made the Task Detail modal open an empty panel (it looks rows up by
+ * Entry_ID). withResolvedEntryIds() recovers the ID from Serial_No, so every
+ * card prints a real enquiry ID and every lookup resolves.
+ * Order matters: filter first, backfill second, otherwise empty rows would
+ * receive an ID and survive the filter.
  */
 export function normalizeEntries(entries: Record<string, unknown>[]): Record<string, unknown>[] {
-  return entries
+  const cleaned = entries
     .map(normalizeEntry)
     .filter((entry) => {
       // Filter out rows that have no Entry_ID and no Company_Name (likely empty rows)
@@ -533,6 +543,8 @@ export function normalizeEntries(entries: Record<string, unknown>[]): Record<str
       const company = String(entry.Company_Name || '').trim();
       return id !== '' || company !== '';
     });
+
+  return withResolvedEntryIds(cleaned);
 }
 
 /**
