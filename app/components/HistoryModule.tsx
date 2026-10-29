@@ -1,8 +1,16 @@
-
+// =============================================================================
+// app/components/HistoryModule.tsx   (NEW FILE — create it)
+// =============================================================================
+// CHANGE C — history shows part wise rows:
+//   Step 7 Part 1  Completed   25 / 50
+//   Step 7 Part 2  Pending     25 remaining
+//   Step 8 Part 1  Completed   25 / 50
+// =============================================================================
 "use client";
 
 import React, { useMemo, useState } from "react";
 import { formatDate } from "../lib/utils";
+import { getEnquiryId } from "../lib/enquiryId";
 import { formatSubmittedOn, STEP_TITLES } from "../lib/workflow";
 import { getEntryHistoryRows, type HistoryRow } from "../lib/partialSubmission";
 
@@ -73,7 +81,7 @@ export default function HistoryModule({ entries, visibleSteps, onViewAttachment 
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[10px] font-mono font-bold" style={{ color: "var(--primary)" }}>{String(entry.Entry_ID || "")}</span>
+                      <span className="text-[10px] font-mono font-bold" style={{ color: "var(--primary)" }}>{getEnquiryId(entry, idx)}</span>
                       <span className="text-[13px] font-bold" style={{ color: "var(--text)" }}>{String(entry.Company_Name || "")}</span>
                     </div>
                     <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>
