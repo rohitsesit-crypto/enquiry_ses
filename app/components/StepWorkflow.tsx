@@ -29,7 +29,7 @@
 
 import React, { useState, useMemo } from "react";
 import { formatDate, formatSheetDateOnly, formatStorageDate } from "../lib/utils";
-import { getEnquiryId } from "../lib/enquiryId";
+import { getEntryWriteKey } from "../lib/enquiryId";
 import { uploadToDrive } from "../lib/driveUpload";
 import {
   buildPartialPayload,
@@ -204,7 +204,7 @@ export default function StepWorkflow({ entry: rawEntry, stepNum: rawStepNum, onS
   // The real Entry_ID from the "Entries" tab. Resolved once here so every
   // write path (Drive folder, invoice log, dispatch payload) uses the same
   // value the sheet holds instead of String(entry.Entry_ID || "unknown").
-  const sheetEntryId = getEnquiryId(entry);
+  const sheetEntryId = getEntryWriteKey(entry);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -212,11 +212,11 @@ export default function StepWorkflow({ entry: rawEntry, stepNum: rawStepNum, onS
   };
 
   const handleSubmit = async () => {
-    // Without the sheet id the backend cannot locate the row, so refuse to
-    // send an empty value and report it instead of failing inside Apps Script.
+    // Without an id the backend cannot locate the row, so refuse to send an
+    // empty value and report it instead of failing inside Apps Script.
     if (!sheetEntryId) {
       setSubmitError(
-        "This entry has no Entry_ID in the Entries tab, so the step cannot be saved. Ask the admin to fill that cell."
+        "The Entry_ID cell for this entry is empty in the Entries tab, so the step cannot be saved. Ask the admin to fill that cell."
       );
       return;
     }
