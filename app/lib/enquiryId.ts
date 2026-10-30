@@ -86,14 +86,14 @@ export function getEnquiryId(entry: Record<string, unknown>): string {
 
   // 1. the headers this workbook actually uses, in order
   for (const column of ID_COLUMNS) {
-    const value = String(entry[column] ?? "").trim();
+    const value = readCell(entry[column]);
     if (value) return value;
   }
 
   // 2. any other header that looks like an id column (renamed tabs)
   for (const key of Object.keys(entry)) {
     if (!looksLikeIdColumn(key)) continue;
-    const value = String(entry[key] ?? "").trim();
+    const value = readCell(entry[key]);
     if (value) return value;
   }
 
@@ -102,7 +102,7 @@ export function getEnquiryId(entry: Record<string, unknown>): string {
   //    decides WHICH column to read, and it never invents an id.
   for (const key of Object.keys(entry)) {
     if (NOT_ID_KEYS.has(normalizeKey(key))) continue;
-    const value = String(entry[key] ?? "").trim();
+    const value = readCell(entry[key]);
     if (value && looksLikeEntryIdValue(value)) return value;
   }
 
@@ -110,11 +110,33 @@ export function getEnquiryId(entry: Record<string, unknown>): string {
 }
 
 /**
+ * Reads one cell as display text.
+ *
+ * Sheets cells regularly carry zero-width spaces, non-breaking spaces and
+ * soft hyphens pasted in from Excel. Those are invisible, so a "blank" id is
+ * often a cell that only contains them — the value has to be cleaned before it
+ * is used or rejected.
+ */
+function readCell(raw: unknown): string {
+  if (raw === null || raw === undefined) return "";
+  if (typeof raw === "number" || typeof raw === "boolean") return String(raw);
+  if (typeof raw === "object") return "";
+  return String(raw)
+    .replace(/[\u200B-\u200D\uFEFF\u00AD]/g, "")
+    .replace(/\u00A0/g, " ")
+    .trim();
+}
+
+/**
  * True when a cell's contents look like an enquiry id rather than an ordinary
- * field: ENQ-00001, ENQP-00003, ENQPP-00008, ENQU-00048, enqp-00004, ...
+ * field: ENQ-00001, ENQP-00003, ENQPP-00008, ENQU-00048, SES/26/0187, A-2291,
+ * Q-2026-118, enqp-00004 ...
+ *
+ * The value must start with letters and then carry digits, which keeps dates
+ * (2026-0187), phone numbers and plain company names out of the match.
  */
 function looksLikeEntryIdValue(value: string): boolean {
-  return /^enq[a-z]*-?\d{1,8}$/i.test(value);
+  return /^[a-z]{1,8}[-/]?\d[a-z0-9/-]*$/i.test(value);
 }
 
 /** True when the sheet itself holds an id for this row. */
