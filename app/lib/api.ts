@@ -17,8 +17,118 @@
 // =============================================================================
 
 import { normalizeEntries } from './utils';
+import {
+  DEMO_COMPANIES,
+  DEMO_EMAIL,
+  DEMO_ENTRIES,
+  DEMO_SALES_PERSONS,
+  DEMO_STEP_NAMES,
+  DEMO_USER,
+} from './demoData';
 
 const SCRIPT_URL = (process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || '').trim();
+
+/**
+ * True when no Apps Script deployment is configured.
+ *
+ * In that case the app serves the local demo dataset so the project runs with
+ * `pnpm dev` alone. Set NEXT_PUBLIC_APPS_SCRIPT_URL in .env.local to talk to the
+ * real Google Sheet instead — nothing else has to change.
+ */
+export const IS_DEMO_MODE = SCRIPT_URL === '';
+
+/** Local answers for the actions the UI needs while in demo mode. */
+function demoResponse<T>(action: string, body: Record<string, unknown>): T | null {
+  switch (action) {
+    case 'verifyUser':
+      return {
+        success: true,
+        verified: true,
+        name: DEMO_USER.name,
+        isAdmin: DEMO_USER.isAdmin,
+      } as T;
+
+    case 'getUserDashboardData':
+      return {
+        success: true,
+        entries: DEMO_ENTRIES,
+        user: DEMO_USER,
+        salesPersons: DEMO_SALES_PERSONS,
+        companies: DEMO_COMPANIES,
+        assignedSteps: DEMO_USER.assignedSteps,
+        viewSteps: DEMO_USER.viewSteps,
+        viewOnlySteps: DEMO_USER.viewOnlySteps,
+        bothSteps: DEMO_USER.bothSteps,
+        canFillForm: DEMO_USER.canFillForm,
+        canViewAllSteps: DEMO_USER.canViewAllSteps,
+        officeAccess: DEMO_USER.officeAccess,
+        stepNames: DEMO_STEP_NAMES,
+      } as T;
+
+    case 'getAdminData':
+      return {
+        success: true,
+        message: 'Demo mode',
+        users: [],
+        salesPersons: DEMO_SALES_PERSONS,
+        companies: DEMO_COMPANIES,
+        entries: DEMO_ENTRIES,
+        gatePassCount: 2,
+        stepNames: DEMO_STEP_NAMES,
+      } as T;
+
+    case 'getItemNames':
+      return {
+        success: true,
+        items: [
+          'MS Flange 4 inch',
+          'GI Bend 2 inch',
+          'MS Pipe 2 inch',
+          'SS Fastener M8',
+          'Structural Bracket',
+          'Control Panel',
+          'Gear Coupling',
+        ],
+      } as T;
+
+    case 'getHolidaysAndSundays':
+      return { success: true, holidays: [], sundays: [] } as T;
+
+    case 'getCompanyAutoFill': {
+      const name = String(body.companyName || '').trim().toLowerCase();
+      const found = DEMO_COMPANIES.find((c) => c.companyName.toLowerCase() === name);
+      return (found
+        ? {
+            success: true,
+            data: {
+              nameOfEnquirer: found.nameOfEnquirer,
+              mobileNumber: found.mobileNumber,
+              emailId: found.emailId,
+            },
+          }
+        : { success: false }) as T;
+    }
+
+    case 'submitNewEntry':
+      return {
+        success: true,
+        entryId: 'DEMO-NEW',
+        message: 'Demo mode: entry accepted locally, nothing was written to a sheet.',
+      } as T;
+
+    case 'submitStep':
+      return {
+        success: true,
+        message: 'Demo mode: step accepted locally, nothing was written to a sheet.',
+      } as T;
+
+    case 'updateEntry':
+      return { success: true, message: 'Demo mode: entry updated locally.' } as T;
+
+    default:
+      return null;
+  }
+}
 
 interface ApiOptions {
   method?: 'GET' | 'POST';
@@ -28,6 +138,13 @@ interface ApiOptions {
 
 async function callApi<T>(action: string, options: ApiOptions = {}): Promise<T> {
   const { method = 'POST', body, params } = options;
+
+  // No deployment configured: answer from the local demo dataset instead of
+  // failing, so the app is runnable out of the box.
+  if (IS_DEMO_MODE) {
+    const local = demoResponse<T>(action, body || {});
+    if (local !== null) return local;
+  }
 
   if (!SCRIPT_URL) {
     throw new Error(
