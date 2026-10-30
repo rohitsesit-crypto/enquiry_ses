@@ -1,25 +1,20 @@
 // =============================================================================
 // app/lib/enquiryId.ts   —  ENQUIRY ID, READ STRAIGHT FROM THE SHEET
 // =============================================================================
-// The Entries sheet is the single source of truth. Whatever ID the sheet holds
-// is what the UI prints, in whatever format it already uses:
+// The "Entries" tab is the single source of truth. Whatever value its ID column
+// holds is what the UI prints, in whatever format it already uses:
 //
-//     SES/26/0187      A-2291      2026-0187      Q-2026-118      ENQU-00042
-//     ENQ-00001        ENQP-00003   ENQPP-00008    enqp-00004
+//     ENQ-00001        ENQP-00003   ENQPP-00008    ENQU-00042     enqp-00004
 //
-// No prefix, no padding, no reformatting. The sheet carries several ID styles
-// (the ENQ / ENQP / ENQPP / ENQU families are all in use), so the app must never
-// invent one of its own and must never assume a fixed prefix.
+// No prefix, no padding, no reformatting, and no stand-in value of any kind. If
+// the cell is empty the UI simply shows no ID — it never falls back to
+// Serial_No, so you never see "S.No 125" where the entry id belongs.
 //
 // WHICH COLUMN HOLDS IT
 // Code.gs writes "Entry_ID", but tabs renamed by hand often use "Enquiry_ID",
-// "Enquiry No", "ID" and similar. The resolver checks the known names first and
-// then any header that looks like an enquiry id, so a renamed column is never
-// silently ignored (that is what made only "ENQU-..." rows appear before).
-//
-// WHEN THE CELL IS EMPTY
-// The row's own Serial_No is shown as a plain number, so a card is never
-// anonymous — and never carries a fabricated "ENQU-..." style id.
+// "Enq No", "Entry ID (Auto)" and similar. The resolver checks the known names
+// first and then any header that looks like an enquiry id, so a renamed column
+// is never silently ignored.
 // =============================================================================
 
 /** Header names seen in this workbook, highest priority first. */
@@ -48,7 +43,8 @@ const KNOWN_ID_KEYS = new Set(ID_COLUMNS.map(normalizeKey));
 
 /**
  * Columns that end in "id"/"no" but are NOT the enquiry id, so the loose
- * matcher below cannot pick them up by accident.
+ * matcher below cannot pick them up by accident. Serial_No sits here on
+ * purpose: it is a row number, never the entry id.
  */
 const NOT_ID_KEYS = new Set([
   "emailid",
@@ -68,6 +64,7 @@ const NOT_ID_KEYS = new Set([
   "invoiceno",
   "invoicenumber",
   "serialno",
+  "serialnumber",
   "sno",
   "srno",
 ]);
@@ -81,8 +78,8 @@ function looksLikeIdColumn(key: string): boolean {
 }
 
 /**
- * The enquiry id as stored in the sheet, trimmed. '' when no id column carries a
- * value.
+ * The entry id exactly as stored in the sheet, trimmed. '' when the row has no
+ * id — callers must render nothing in that case rather than invent a value.
  */
 export function getEnquiryId(entry: Record<string, unknown>): string {
   if (!entry) return "";
@@ -100,7 +97,24 @@ export function getEnquiryId(entry: Record<string, unknown>): string {
     if (value) return value;
   }
 
+  // 3. last resort: the header is called something we do not know at all, so
+  //    trust the value itself. This still prints the sheet's own text — it only
+  //    decides WHICH column to read, and it never invents an id.
+  for (const key of Object.keys(entry)) {
+    if (NOT_ID_KEYS.has(normalizeKey(key))) continue;
+    const value = String(entry[key] ?? "").trim();
+    if (value && looksLikeEntryIdValue(value)) return value;
+  }
+
   return "";
+}
+
+/**
+ * True when a cell's contents look like an enquiry id rather than an ordinary
+ * field: ENQ-00001, ENQP-00003, ENQPP-00008, ENQU-00048, enqp-00004, ...
+ */
+function looksLikeEntryIdValue(value: string): boolean {
+  return /^enq[a-z]*-?\d{1,8}$/i.test(value);
 }
 
 /** True when the sheet itself holds an id for this row. */
@@ -109,20 +123,10 @@ export function hasEnquiryId(entry: Record<string, unknown>): boolean {
 }
 
 /**
- * Plain serial number, used only when the id column is blank.
- * Printed as-is ("24"), never wrapped in a prefix.
- */
-export function getEnquirySerialLabel(entry: Record<string, unknown>): string {
-  const serial = String(entry?.Serial_No ?? "").trim();
-  if (!serial || serial === "0") return "";
-  return serial;
-}
-
-/**
  * INTERNAL navigation key only — never rendered.
  *
- * The Task Detail modal looks its row up by this key, so rows whose id column is
- * blank still open instead of showing "Entry not found".
+ * The Task Detail modal looks its row up by this key, so rows whose Entry_ID
+ * cell is still empty stay openable without the UI printing a stand-in id.
  */
 export function getEntryRef(entry: Record<string, unknown>, rowIndex = 0): string {
   const id = getEnquiryId(entry);
