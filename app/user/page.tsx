@@ -113,7 +113,13 @@ function UserDashboardContent() {
   const [dashboardData, setDashboardData] = useState<Record<string, unknown> | null>(null);
   const [currentSection, setCurrentSection] = useState<"pending" | "completed" | "history" | "forms">("pending");
   const [showNewEntry, setShowNewEntry] = useState(false);
-  const [showTaskDetail, setShowTaskDetail] = useState<{ entryId: string; stepNum: number } | null>(null);
+  // The row object itself is carried into the detail view, so the modal can
+  // never resolve to a different row than the card that was clicked.
+  const [showTaskDetail, setShowTaskDetail] = useState<{
+    entry: Record<string, unknown>;
+    entryRef: string;
+    stepNum: number;
+  } | null>(null);
   const [showStepSubmit, setShowStepSubmit] = useState<{ entryId: string; stepNum: number; entry: Record<string, unknown> } | null>(null);
   const [showEditForm, setShowEditForm] = useState<{ entryId: string; entry: Record<string, unknown> } | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -250,7 +256,14 @@ function UserDashboardContent() {
         showToast("This process has been stopped", "error");
         return;
       }
-      setShowStepSubmit({ entryId, stepNum, entry });
+      // The sheet is written back by Entry_ID only, so the internal reference
+      // can never be sent to the backend.
+      const sheetEntryId = getEnquiryId(entry) || entryId;
+      if (!getEnquiryId(entry)) {
+        showToast("This entry has no Entry ID in the sheet yet, so the step cannot be submitted.", "error");
+        return;
+      }
+      setShowStepSubmit({ entryId: sheetEntryId, stepNum, entry });
     },
     [access]
   );
@@ -392,9 +405,10 @@ function UserDashboardContent() {
 
   filteredEntries.forEach((entry, entryIndex) => {
     const isStopped = sheetBool(entry.Is_Stopped);
-    // INTERNAL key only. Rows whose Entry_ID cell is still empty stay openable
-    // without the UI printing an invented ID.
-    const entryRef = getEntryRef(entry, entryIndex);
+    // INTERNAL key only, never rendered. The row's position in the FULL entry
+    // list is used (not the filtered position), so the key stays unique and
+    // stable even when the office filter hides rows.
+    const entryRef = getEntryRef(entry, entries.indexOf(entry));
 
     visibleSteps.forEach((s) => {
       const rawStatus = String(entry[`Step_${s}_Status`] || "Locked");
@@ -727,7 +741,7 @@ function UserDashboardContent() {
                                 return (
                                   <div
                                     key={`${task.entryRef}-${task.stepNum}-${task.partNumber}-${idx}`}
-                                    onClick={() => setShowTaskDetail({ entryId: task.entryRef, stepNum: task.stepNum })}
+                                    onClick={() => setShowTaskDetail({ entry: task.entry, entryRef: task.entryRef, stepNum: task.stepNum })}
                                     className="p-3 rounded-lg cursor-pointer transition-all hover:shadow-md"
                                     style={{
                                       background: isTodayDate ? "rgba(245,158,11,0.04)" : locationBg,
@@ -833,7 +847,7 @@ function UserDashboardContent() {
                       return (
                         <div
                           key={idx}
-                          onClick={() => setShowTaskDetail({ entryId: group.entryRef, stepNum: group.steps[0].stepNum })}
+                          onClick={() => setShowTaskDetail({ entry: group.entry, entryRef: group.entryRef, stepNum: group.steps[0].stepNum })}
                           className="p-4 rounded-xl cursor-pointer transition-all hover:shadow-md flex flex-col"
                           style={{ background: "var(--surface)", border: "1px solid var(--border)", borderLeft: "4px solid var(--success)" }}
                         >
@@ -921,8 +935,8 @@ function UserDashboardContent() {
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-5" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }} onClick={(e) => { if (e.target === e.currentTarget) setShowTaskDetail(null); }}>
           <div className="w-full max-w-[660px] max-h-[90vh] overflow-y-auto rounded-xl p-6 shadow-2xl" style={{ background: "var(--surface)" }}>
             <TaskDetailModal
-              entries={filteredEntries}
-              entryId={showTaskDetail.entryId}
+              entry={showTaskDetail.entry}
+              entryRef={showTaskDetail.entryRef}
               focusStep={showTaskDetail.stepNum}
               access={access}
               visibleSteps={visibleSteps}
@@ -1082,8 +1096,8 @@ function MyAccessBar({
 // TASK DETAIL MODAL
 // =============================================================================
 function TaskDetailModal({
-  entries,
-  entryId,
+  entry,
+  entryRef,
   focusStep,
   access,
   visibleSteps,
@@ -1093,8 +1107,8 @@ function TaskDetailModal({
   email,
   onViewAttachment,
 }: {
-  entries: Record<string, unknown>[];
-  entryId: string;
+  entry: Record<string, unknown>;
+  entryRef: string;
   focusStep: number;
   access: UserAccess;
   visibleSteps: number[];
@@ -1104,10 +1118,13 @@ function TaskDetailModal({
   email: string;
   onViewAttachment: (url: string) => void;
 }) {
-  // Looked up by the internal reference, so a row whose Entry_ID cell is blank
-  // still opens instead of showing "Entry not found".
-  const entry = entries.find((e, i) => getEntryRef(e, i) === String(entryId));
+  // The clicked row is passed in directly, so this view can never resolve to a
+  // different entry than the card the user tapped.
   if (!entry) return <p className="text-xs" style={{ color: "var(--text-muted)" }}>Entry not found</p>;
+
+  // Actions that write back to the sheet need the real Entry_ID, never the
+  // internal reference.
+  const entryId = getEnquiryId(entry) || entryRef;
 
   const isSubmitter = String(entry.Submitted_By || "").toLowerCase() === email.toLowerCase();
   const isStopped = sheetBool(entry.Is_Stopped);
