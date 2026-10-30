@@ -256,10 +256,11 @@ function UserDashboardContent() {
         showToast("This process has been stopped", "error");
         return;
       }
-      // The sheet is written back by Entry_ID only, so the internal reference
-      // can never be sent to the backend.
-      const sheetEntryId = getEnquiryId(entry) || entryId;
-      if (!getEnquiryId(entry)) {
+      // The sheet is written back by Entry_ID only. When that cell is empty
+      // there is no id to send, so the submission is blocked instead of
+      // falling back to an internal list key.
+      const sheetEntryId = getEnquiryId(entry);
+      if (!sheetEntryId) {
         showToast("This entry has no Entry ID in the sheet yet, so the step cannot be submitted.", "error");
         return;
       }
@@ -1122,9 +1123,10 @@ function TaskDetailModal({
   // different entry than the card the user tapped.
   if (!entry) return <p className="text-xs" style={{ color: "var(--text-muted)" }}>Entry not found</p>;
 
-  // Actions that write back to the sheet need the real Entry_ID, never the
-  // internal reference.
-  const entryId = getEnquiryId(entry) || entryRef;
+  // Actions that write back to the sheet need the real Entry_ID. When the
+  // sheet cell is empty the value stays empty — the internal list key
+  // (SERIAL:/ROW:) must never be sent to the backend as an enquiry id.
+  const entryId = getEnquiryId(entry);
 
   const isSubmitter = String(entry.Submitted_By || "").toLowerCase() === email.toLowerCase();
   const isStopped = sheetBool(entry.Is_Stopped);
