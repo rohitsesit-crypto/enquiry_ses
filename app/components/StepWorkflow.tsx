@@ -29,6 +29,7 @@
 
 import React, { useState, useMemo } from "react";
 import { formatDate, formatSheetDateOnly, formatStorageDate } from "../lib/utils";
+import { getEnquiryId } from "../lib/enquiryId";
 import { uploadToDrive } from "../lib/driveUpload";
 import {
   buildPartialPayload,
@@ -113,6 +114,7 @@ export default function StepWorkflow({ entry: rawEntry, stepNum: rawStepNum, onS
   const [attachment, setAttachment] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [remark, setRemark] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
 
@@ -199,19 +201,32 @@ export default function StepWorkflow({ entry: rawEntry, stepNum: rawStepNum, onS
   const willStop = !!status && routing.stop;
   const blockSubmit = stepNum === 6 && status === "No";
 
+  // The real Entry_ID from the "Entries" tab. Resolved once here so every
+  // write path (Drive folder, invoice log, dispatch payload) uses the same
+  // value the sheet holds instead of String(entry.Entry_ID || "unknown").
+  const sheetEntryId = getEnquiryId(entry);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) setAttachment(file);
   };
 
   const handleSubmit = async () => {
+    // Without the sheet id the backend cannot locate the row, so refuse to
+    // send an empty value and report it instead of failing inside Apps Script.
+    if (!sheetEntryId) {
+      setSubmitError(
+        "This entry has no Entry_ID in the Entries tab, so the step cannot be saved. Ask the admin to fill that cell."
+      );
+      return;
+    }
     setSubmitting(true);
     try {
       let attachmentUrl = "";
       if (attachment) {
         setUploadingFile(true);
         try {
-          const uploadResult = await uploadToDrive(attachment, String(entry.Entry_ID || "unknown"));
+          const uploadResult = await uploadToDrive(attachment, sheetEntryId);
           if (uploadResult.success && uploadResult.url) attachmentUrl = uploadResult.url;
         } catch (err) {
           console.error("Upload error:", err);
@@ -272,7 +287,7 @@ export default function StepWorkflow({ entry: rawEntry, stepNum: rawStepNum, onS
           // ---------------------------------------------------------------
           data.step7InvoiceSheetName = STEP7_INVOICE_SHEET_NAME;
           data.step7InvoiceLog = {
-            Entry_ID: String(entry.Entry_ID || ""),
+            Entry_ID: sheetEntryId,
             Invoice_No: reference,
             Timestamp: formatInvoiceLogTimestamp(new Date()),
             Attachment_URL: attachmentUrl || "",
@@ -1056,6 +1071,14 @@ export default function StepWorkflow({ entry: rawEntry, stepNum: rawStepNum, onS
       </div>
 
       {/* ACTIONS */}
+      {!!submitError && (
+        <div
+          className="mt-5 px-3.5 py-2.5 rounded-lg text-[11px] leading-relaxed"
+          style={{ background: "rgba(220,38,38,0.08)", color: "var(--danger)", border: "1px solid var(--danger)" }}
+        >
+          {submitError}
+        </div>
+      )}
       <div className="flex gap-3 mt-6">
         <button
           onClick={onCancel}
