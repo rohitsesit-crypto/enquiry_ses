@@ -81,7 +81,7 @@ export default function HistoryModule({ entries, visibleSteps, onViewAttachment 
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[10px] font-mono font-bold" style={{ color: "var(--primary)" }}>{getEnquiryId(entry, idx)}</span>
+                      <span className="text-[10px] font-mono font-bold" style={{ color: "var(--primary)" }}>{getEnquiryId(entry)}</span>
                       <span className="text-[13px] font-bold" style={{ color: "var(--text)" }}>{String(entry.Company_Name || "")}</span>
                     </div>
                     <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>
