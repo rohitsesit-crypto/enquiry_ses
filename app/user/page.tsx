@@ -62,7 +62,7 @@ import EnquiryForm from "../components/EnquiryForm";
 import StepWorkflow from "../components/StepWorkflow";
 import FormSubmissionsModule from "../components/FormSubmissionsModule";
 import EnquiryIdLabel from "../components/EnquiryIdLabel";
-import { getEnquiryId, getEntryRef, getEntryWriteKey } from "../lib/enquiryId";
+import { getEnquiryIdDisplay, getEntryRef, getEntryWriteKey } from "../lib/enquiryId";
 import { canEditEnquiryForm, getOverallStepStatus, getStepPartSummary, isPartialStep, isStepUnlocked } from "../lib/partialSubmission";
 import {
   STEP_TITLES,
@@ -1124,8 +1124,10 @@ function TaskDetailModal({
   if (!entry) return <p className="text-xs" style={{ color: "var(--text-muted)" }}>Entry not found</p>;
 
   // Actions that write back to the sheet need the Entry_ID the sheet holds.
-  // Display keeps using getEnquiryId(), which never shows a non-id value.
+  // Display prefers the same id, then the raw cell, so a renamed header or a
+  // bad cell is shown as it is instead of a silent "Not set".
   const entryId = getEntryWriteKey(entry);
+  const entryIdDisplay = getEnquiryIdDisplay(entry);
 
   const isSubmitter = String(entry.Submitted_By || "").toLowerCase() === email.toLowerCase();
   const isStopped = sheetBool(entry.Is_Stopped);
@@ -1186,7 +1188,10 @@ function TaskDetailModal({
 
       {/* PRIMARY INFORMATION */}
       <div className="space-y-0.5 mb-5 p-4 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-        <InfoRow label="Entry ID" value={getEnquiryId(entry) || "Not set in the sheet"} />
+        <InfoRow
+          label="Entry ID"
+          value={entryIdDisplay.value || "This row has a blank Entry_ID cell"}
+        />
         <InfoRow label="Submitted on" value={formatSubmittedOn(entry.Timestamp)} />
         <InfoRow label="Submitted By" value={String(entry.Submitted_By || "")} />
         <InfoRow label="Location" value={String(entry.Location || "")} />
