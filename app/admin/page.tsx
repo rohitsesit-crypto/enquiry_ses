@@ -687,10 +687,10 @@ function AdminDashboardContent() {
                 <tbody>
                   {entries.map((entry, idx) => (
                     <tr key={idx} style={{ borderBottom: "1px solid var(--border-light)" }}>
-                      {/* ENQUIRY ID FIX — a blank sheet cell no longer prints
-                          "undefined"/empty in the admin table. */}
+                      {/* ENQUIRY ID — the sheet's Entry_ID value, unchanged.
+                          Blank cells simply render nothing. */}
                       <td className="py-2 px-2 font-mono" style={{ color: "var(--primary)" }}>
-                        {getEnquiryId(entry, idx)}
+                        {getEnquiryId(entry)}
                       </td>
                       <td className="py-2 px-2">
                         {entry.Challan_Number ? (
