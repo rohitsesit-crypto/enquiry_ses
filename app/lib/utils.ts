@@ -1,6 +1,8 @@
 // Utility functions for Enquiry Capture O2D
 // Enhanced with robust data normalization for manual Google Sheet entries
 
+import { getEnquiryId } from "./enquiryId";
+
 /** Short month names used for all UI date rendering: 28 Jul 2026 */
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -414,7 +416,9 @@ export function normalizeEntry(entry: Record<string, unknown>): Record<string, u
   const normalized: Record<string, unknown> = { ...entry };
 
   // Normalize core fields
-  normalized.Entry_ID = normalizeString(entry.Entry_ID);
+  // Read through the shared resolver: a header typed "Entry ID" / "Enq No"
+  // and invisible characters in the cell must not erase the id.
+  normalized.Entry_ID = getEnquiryId(entry);
   normalized.Serial_No = normalizeNumber(entry.Serial_No);
   normalized.Timestamp = normalizeString(entry.Timestamp);
   normalized.Submitted_By = normalizeString(entry.Submitted_By);
@@ -528,10 +532,14 @@ export function normalizeEntries(entries: Record<string, unknown>[]): Record<str
   return entries
     .map(normalizeEntry)
     .filter((entry) => {
-      // Filter out rows that have no Entry_ID and no Company_Name (likely empty rows)
+      // Keep every row that still carries enquiry data. The old check kept a
+      // row only when it had an Entry_ID or a company name, so a row whose id
+      // column is blank (or whose header differs) silently disappeared.
       const id = String(entry.Entry_ID || '').trim();
       const company = String(entry.Company_Name || '').trim();
-      return id !== '' || company !== '';
+      const enquirer = String(entry.Name_of_Enquirer || '').trim();
+      const serial = String(entry.Serial_No || '').trim();
+      return id !== '' || company !== '' || enquirer !== '' || (serial !== '' && serial !== '0');
     });
 }
 
