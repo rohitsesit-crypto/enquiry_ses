@@ -62,7 +62,7 @@ import EnquiryForm from "../components/EnquiryForm";
 import StepWorkflow from "../components/StepWorkflow";
 import FormSubmissionsModule from "../components/FormSubmissionsModule";
 import EnquiryIdLabel from "../components/EnquiryIdLabel";
-import { getEnquiryId, getEntryRef } from "../lib/enquiryId";
+import { getEnquiryId, getEntryRef, getEntryWriteKey } from "../lib/enquiryId";
 import { canEditEnquiryForm, getOverallStepStatus, getStepPartSummary, isPartialStep, isStepUnlocked } from "../lib/partialSubmission";
 import {
   STEP_TITLES,
@@ -256,10 +256,10 @@ function UserDashboardContent() {
         showToast("This process has been stopped", "error");
         return;
       }
-      // The sheet is written back by Entry_ID only. When that cell is empty
-      // there is no id to send, so the submission is blocked instead of
-      // falling back to an internal list key.
-      const sheetEntryId = getEnquiryId(entry);
+      // The sheet is written back by Entry_ID only. The write key is whatever
+      // the Entry_ID cell holds, so a real id is never rejected here; only a
+      // genuinely empty cell blocks the submission.
+      const sheetEntryId = getEntryWriteKey(entry);
       if (!sheetEntryId) {
         showToast("This entry has no Entry ID in the sheet yet, so the step cannot be submitted.", "error");
         return;
@@ -277,7 +277,7 @@ function UserDashboardContent() {
   const openEditForm = useCallback(
     (entry: Record<string, unknown>) => {
       // Only the real sheet ID can be saved back, so a blank cell blocks editing.
-      const entryId = getEnquiryId(entry);
+      const entryId = getEntryWriteKey(entry);
       if (!entryId) {
         showToast("This entry has no Entry ID in the sheet, so it cannot be edited yet.", "error");
         return;
@@ -1123,10 +1123,9 @@ function TaskDetailModal({
   // different entry than the card the user tapped.
   if (!entry) return <p className="text-xs" style={{ color: "var(--text-muted)" }}>Entry not found</p>;
 
-  // Actions that write back to the sheet need the real Entry_ID. When the
-  // sheet cell is empty the value stays empty — the internal list key
-  // (SERIAL:/ROW:) must never be sent to the backend as an enquiry id.
-  const entryId = getEnquiryId(entry);
+  // Actions that write back to the sheet need the Entry_ID the sheet holds.
+  // Display keeps using getEnquiryId(), which never shows a non-id value.
+  const entryId = getEntryWriteKey(entry);
 
   const isSubmitter = String(entry.Submitted_By || "").toLowerCase() === email.toLowerCase();
   const isStopped = sheetBool(entry.Is_Stopped);
@@ -1187,7 +1186,7 @@ function TaskDetailModal({
 
       {/* PRIMARY INFORMATION */}
       <div className="space-y-0.5 mb-5 p-4 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-        <InfoRow label="Entry ID" value={getEnquiryId(entry)} />
+        <InfoRow label="Entry ID" value={getEnquiryId(entry) || "Not set in the sheet"} />
         <InfoRow label="Submitted on" value={formatSubmittedOn(entry.Timestamp)} />
         <InfoRow label="Submitted By" value={String(entry.Submitted_By || "")} />
         <InfoRow label="Location" value={String(entry.Location || "")} />
