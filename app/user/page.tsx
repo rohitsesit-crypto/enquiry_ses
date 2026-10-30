@@ -62,6 +62,7 @@ import EnquiryForm from "../components/EnquiryForm";
 import StepWorkflow from "../components/StepWorkflow";
 import FormSubmissionsModule from "../components/FormSubmissionsModule";
 import EnquiryIdLabel from "../components/EnquiryIdLabel";
+import { getEnquiryId, getEntryRef } from "../lib/enquiryId";
 import { canEditEnquiryForm, getOverallStepStatus, getStepPartSummary, isPartialStep, isStepUnlocked } from "../lib/partialSubmission";
 import {
   STEP_TITLES,
@@ -82,6 +83,8 @@ import {
 
 interface TaskItem {
   entry: Record<string, unknown>;
+  /** Internal navigation key — never rendered as an enquiry ID. */
+  entryRef: string;
   stepNum: number;
   partNumber: number;
   label: string;
@@ -259,8 +262,12 @@ function UserDashboardContent() {
    */
   const openEditForm = useCallback(
     (entry: Record<string, unknown>) => {
-      const entryId = String(entry.Entry_ID || "");
-      if (!entryId) return;
+      // Only the real sheet ID can be saved back, so a blank cell blocks editing.
+      const entryId = getEnquiryId(entry);
+      if (!entryId) {
+        showToast("This entry has no Entry ID in the sheet, so it cannot be edited yet.", "error");
+        return;
+      }
 
       if (!canEditEnquiryForm(entry)) {
         showToast("Step 7 is completed or partially completed, so this form can no longer be edited.", "error");
@@ -383,8 +390,11 @@ function UserDashboardContent() {
   const pendingTasks: TaskItem[] = [];
   const completedTasks: TaskItem[] = [];
 
-  filteredEntries.forEach((entry) => {
+  filteredEntries.forEach((entry, entryIndex) => {
     const isStopped = sheetBool(entry.Is_Stopped);
+    // INTERNAL key only. Rows whose Entry_ID cell is still empty stay openable
+    // without the UI printing an invented ID.
+    const entryRef = getEntryRef(entry, entryIndex);
 
     visibleSteps.forEach((s) => {
       const rawStatus = String(entry[`Step_${s}_Status`] || "Locked");
@@ -405,6 +415,7 @@ function UserDashboardContent() {
         summary.parts.forEach((part) => {
           completedTasks.push({
             entry,
+            entryRef,
             stepNum: s,
             partNumber: part.partNumber,
             label: `Step ${s} Part ${part.partNumber}`,
@@ -420,6 +431,7 @@ function UserDashboardContent() {
         if (summary.pendingPart) {
           pendingTasks.push({
             entry,
+            entryRef,
             stepNum: s,
             partNumber: summary.pendingPart.partNumber,
             label: `Step ${s} Part ${summary.pendingPart.partNumber}`,
@@ -438,6 +450,7 @@ function UserDashboardContent() {
       if (rawStatus === "Pending") {
         pendingTasks.push({
           entry,
+          entryRef,
           stepNum: s,
           partNumber: 1,
           label: `Step ${s}`,
@@ -451,6 +464,7 @@ function UserDashboardContent() {
       } else if (rawStatus === "Completed") {
         completedTasks.push({
           entry,
+          entryRef,
           stepNum: s,
           partNumber: 1,
           label: `Step ${s}`,
@@ -479,11 +493,11 @@ function UserDashboardContent() {
   const filteredPendingTasks = pendingTasks.filter(filterBySearch);
   const filteredCompletedTasks = completedTasks.filter(filterBySearch);
 
-  const completedByEntry: Record<string, { entry: Record<string, unknown>; steps: TaskItem[] }> = {};
+  const completedByEntry: Record<string, { entry: Record<string, unknown>; entryRef: string; steps: TaskItem[] }> = {};
   filteredCompletedTasks.forEach((task) => {
-    const entryId = String(task.entry.Entry_ID);
-    if (!completedByEntry[entryId]) completedByEntry[entryId] = { entry: task.entry, steps: [] };
-    completedByEntry[entryId].steps.push(task);
+    const entryRef = task.entryRef;
+    if (!completedByEntry[entryRef]) completedByEntry[entryRef] = { entry: task.entry, entryRef, steps: [] };
+    completedByEntry[entryRef].steps.push(task);
   });
   Object.values(completedByEntry).forEach((group) => {
     group.steps.sort((a, b) => a.stepNum - b.stepNum || a.partNumber - b.partNumber);
@@ -712,8 +726,8 @@ function UserDashboardContent() {
 
                                 return (
                                   <div
-                                    key={`${String(task.entry.Entry_ID)}-${task.stepNum}-${task.partNumber}-${idx}`}
-                                    onClick={() => setShowTaskDetail({ entryId: String(task.entry.Entry_ID), stepNum: task.stepNum })}
+                                    key={`${task.entryRef}-${task.stepNum}-${task.partNumber}-${idx}`}
+                                    onClick={() => setShowTaskDetail({ entryId: task.entryRef, stepNum: task.stepNum })}
                                     className="p-3 rounded-lg cursor-pointer transition-all hover:shadow-md"
                                     style={{
                                       background: isTodayDate ? "rgba(245,158,11,0.04)" : locationBg,
@@ -727,11 +741,10 @@ function UserDashboardContent() {
                                         {task.stepNum}
                                       </div>
                                       <div className="flex-1 min-w-0">
-                                        {/* ENQUIRY ID FIX — the ID now leads the
-                                            card instead of being glued to the
-                                            company name with "·". A blank
-                                            Entry_ID cell used to leave a
-                                            dangling separator here. */}
+                                        {/* ENQUIRY ID — printed exactly as stored in
+                                            the sheet's Entry_ID column. Nothing is
+                                            rendered when that cell is empty, so no
+                                            dangling "·" and no invented ID. */}
                                         <div className="flex items-center gap-1.5 mb-1">
                                           <EnquiryIdLabel entry={task.entry} size="sm" />
                                           <h4 className="text-[13px] font-semibold truncate" style={{ color: "var(--text)" }}>
@@ -774,7 +787,7 @@ function UserDashboardContent() {
                                     {task.canSubmit && (
                                       <div className="flex justify-end mt-2.5">
                                         <button
-                                          onClick={(e) => { e.stopPropagation(); openStepSubmit(String(task.entry.Entry_ID), task.stepNum, task.entry); }}
+                                          onClick={(e) => { e.stopPropagation(); openStepSubmit(task.entryRef, task.stepNum, task.entry); }}
                                           className="px-3 py-1.5 rounded-md text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
                                           style={{ background: "var(--success)" }}
                                         >
@@ -820,7 +833,7 @@ function UserDashboardContent() {
                       return (
                         <div
                           key={idx}
-                          onClick={() => setShowTaskDetail({ entryId: String(group.entry.Entry_ID), stepNum: group.steps[0].stepNum })}
+                          onClick={() => setShowTaskDetail({ entryId: group.entryRef, stepNum: group.steps[0].stepNum })}
                           className="p-4 rounded-xl cursor-pointer transition-all hover:shadow-md flex flex-col"
                           style={{ background: "var(--surface)", border: "1px solid var(--border)", borderLeft: "4px solid var(--success)" }}
                         >
@@ -828,8 +841,8 @@ function UserDashboardContent() {
                             <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ background: "var(--success)" }}>&#x2713;</div>
                             <div className="flex-1 min-w-0">
                               <h4 className="text-[13px] font-bold truncate" style={{ color: "var(--text)" }}>{String(group.entry.Company_Name || "")}</h4>
-                              {/* ENQUIRY ID FIX — same plate as the pending cards,
-                                  so a completed enquiry is identifiable too. */}
+                              {/* ENQUIRY ID — same plate as the pending cards,
+                                  straight from the sheet's Entry_ID column. */}
                               <div className="flex items-center gap-1.5 mt-0.5">
                                 <EnquiryIdLabel entry={group.entry} size="sm" />
                                 <span className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>
@@ -1091,7 +1104,9 @@ function TaskDetailModal({
   email: string;
   onViewAttachment: (url: string) => void;
 }) {
-  const entry = entries.find((e) => String(e.Entry_ID) === String(entryId));
+  // Looked up by the internal reference, so a row whose Entry_ID cell is blank
+  // still opens instead of showing "Entry not found".
+  const entry = entries.find((e, i) => getEntryRef(e, i) === String(entryId));
   if (!entry) return <p className="text-xs" style={{ color: "var(--text-muted)" }}>Entry not found</p>;
 
   const isSubmitter = String(entry.Submitted_By || "").toLowerCase() === email.toLowerCase();
@@ -1120,8 +1135,7 @@ function TaskDetailModal({
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className="min-w-0">
           <h2 className="text-base font-bold truncate" style={{ color: "var(--text)" }}>{String(entry.Company_Name || "")}</h2>
-          {/* ENQUIRY ID FIX — the detail header always prints a real ID,
-              including rows whose sheet cell is blank. */}
+          {/* ENQUIRY ID — the sheet value only, hidden when the cell is empty. */}
           <div className="flex items-center gap-1.5 mt-1">
             <EnquiryIdLabel entry={entry} />
             <span className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>
@@ -1154,7 +1168,7 @@ function TaskDetailModal({
 
       {/* PRIMARY INFORMATION */}
       <div className="space-y-0.5 mb-5 p-4 rounded-lg" style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-        <InfoRow label="Entry ID" value={String(entry.Entry_ID || "")} />
+        <InfoRow label="Entry ID" value={getEnquiryId(entry)} />
         <InfoRow label="Submitted on" value={formatSubmittedOn(entry.Timestamp)} />
         <InfoRow label="Submitted By" value={String(entry.Submitted_By || "")} />
         <InfoRow label="Location" value={String(entry.Location || "")} />
