@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { getCompanyAutoFill } from "../lib/api";
 import { formatDateOnly, formatStorageDate, toInputDate } from "../lib/utils";
 
@@ -53,8 +53,7 @@ export default function EnquiryForm({ salesPersons, companies, initialData, onSu
   const [typeOfEnquiry, setTypeOfEnquiry] = useState((initialData?.Type_of_Enquiry as string) || "");
   const [remark, setRemark] = useState((initialData?.Remark as string) || "");
   const [submitting, setSubmitting] = useState(false);
-  const [companySuggestions, setCompanySuggestions] = useState<string[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [companySuggestionsVisible, setCompanySuggestionsVisible] = useState(false);
 
   // Auto-fill when company name matches
   useEffect(() => {
@@ -85,16 +84,15 @@ export default function EnquiryForm({ salesPersons, companies, initialData, onSu
     return () => clearTimeout(timer);
   }, [companyName, companies, initialData]);
 
-  // Company name suggestions
-  useEffect(() => {
-    if (!companyName || companyName.length < 2) {
-      setCompanySuggestions([]);
-      return;
-    }
-    const filtered = companies
+  // Company name suggestions are derived from the current input and the
+  // companies list, so no effect writes state on render.
+  const companySuggestions = useMemo(() => {
+    const query = companyName.trim().toLowerCase();
+    if (query.length < 2) return [];
+    return companies
       .map((c) => String(c.companyName || ""))
-      .filter((name) => name.toLowerCase().includes(companyName.toLowerCase()));
-    setCompanySuggestions(filtered.slice(0, 5));
+      .filter((name) => name.toLowerCase().includes(query))
+      .slice(0, 5);
   }, [companyName, companies]);
 
   const addRequirement = () => {
@@ -175,13 +173,13 @@ export default function EnquiryForm({ salesPersons, companies, initialData, onSu
           <input
             type="text"
             value={companyName}
-            onChange={(e) => { setCompanyName(e.target.value); setShowSuggestions(true); }}
-            onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+            onChange={(e) => { setCompanyName(e.target.value); setCompanySuggestionsVisible(true); }}
+            onBlur={() => setTimeout(() => setCompanySuggestionsVisible(false), 200)}
             placeholder="Enter company name"
             className="w-full px-3 py-2 rounded-md text-xs outline-none"
             style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text)" }}
           />
-          {showSuggestions && companySuggestions.length > 0 && (
+          {companySuggestionsVisible && companySuggestions.length > 0 && (
             <div className="absolute top-full left-0 right-0 z-50 mt-1 rounded-md shadow-lg max-h-40 overflow-y-auto" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
               {companySuggestions.map((name, i) => (
                 <button
@@ -189,7 +187,7 @@ export default function EnquiryForm({ salesPersons, companies, initialData, onSu
                   type="button"
                   className="w-full text-left px-3 py-2 text-xs hover:opacity-80"
                   style={{ color: "var(--text)", borderBottom: "1px solid var(--border-light)" }}
-                  onMouseDown={() => { setCompanyName(name); setShowSuggestions(false); }}
+                  onMouseDown={() => { setCompanyName(name); setCompanySuggestionsVisible(false); }}
                 >
                   {name}
                 </button>
