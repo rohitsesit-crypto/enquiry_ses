@@ -9,7 +9,8 @@
 
 import React, { useMemo, useState } from "react";
 import { formatSheetDateOnly, parseDateString } from "../lib/utils";
-import { getEnquiryId } from "../lib/enquiryId";
+import { getEnquiryIdDisplay, getEntryRef } from "../lib/enquiryId";
+import EnquiryIdLabel from "./EnquiryIdLabel";
 import { formatSubmittedOn, getGatePassNo, getPurchaseOrderDetails, getDispatchDetails } from "../lib/workflow";
 import { canEditEnquiryForm, getEntryCurrentStep, getRequirements } from "../lib/partialSubmission";
 
@@ -79,14 +80,17 @@ export default function FormSubmissionsModule({ entries, onEditEntry }: FormSubm
 
       <div className="space-y-3">
         {filtered.map((entry, idx) => {
-          const entryId = String(entry.Entry_ID || idx);
-          const isOpen = openId === entryId;
+          // Unique per row: the Entry_ID when there is one, otherwise the
+          // serial / row position. Duplicate ids can no longer collide, so
+          // every submission gets its own card.
+          const rowRef = `${getEntryRef(entry, idx)}-${idx}`;
+          const isOpen = openId === rowRef;
           return (
             <FormSubmissionCard
-              key={entryId}
+              key={rowRef}
               entry={entry}
               isOpen={isOpen}
-              onToggle={() => setOpenId(isOpen ? null : entryId)}
+              onToggle={() => setOpenId(isOpen ? null : rowRef)}
               onEdit={onEditEntry ? () => onEditEntry(entry) : undefined}
             />
           );
@@ -135,9 +139,7 @@ function FormSubmissionCard({
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] font-mono font-bold" style={{ color: "var(--primary)" }}>
-                {getEnquiryId(entry)}
-              </span>
+              <EnquiryIdLabel entry={entry} size="sm" fallback="No Entry ID" />
               <span className="text-[13px] font-bold" style={{ color: "var(--text)" }}>
                 {String(entry.Company_Name || "")}
               </span>
@@ -196,7 +198,7 @@ function FormSubmissionCard({
 
           {/* PRIMARY INFORMATION — same layout as the view modal */}
           <Section title="Primary Information">
-            <Row label="Entry ID" value={getEnquiryId(entry)} />
+            <Row label="Entry ID" value={getEnquiryIdDisplay(entry).value || "No Entry ID in this row"} inline />
             <Row label="Serial No" value={String(entry.Serial_No || "")} />
             <Row label="Submitted On" value={formatSubmittedOn(entry.Timestamp)} />
             <Row label="Submitted By" value={String(entry.Submitted_By || "")} />
@@ -265,12 +267,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
-  if (!value) return null;
+function Row({ label, value, inline }: { label: string; value: string; inline?: boolean }) {
+  // `inline` keeps the row visible even when the value is empty, so the Entry ID
+  // slot is always present on screen instead of quietly disappearing.
+  if (!value && !inline) return null;
   return (
     <div className="flex items-start gap-2 py-1">
       <span className="text-[10px] font-semibold min-w-[130px]" style={{ color: "var(--text-muted)" }}>{label}</span>
-      <span className="text-[11px] font-medium" style={{ color: "var(--text)" }}>{value}</span>
+      <span className="text-[11px] font-medium" style={{ color: value ? "var(--text)" : "var(--text-faint)" }}>{value || "—"}</span>
     </div>
   );
 }
