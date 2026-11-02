@@ -2,7 +2,7 @@
 // Sends file as base64 to the Apps Script which saves it to Google Drive
 // and returns a shareable link
 
-const SCRIPT_URL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || '';
+const SCRIPT_URL = process.env.APPS_SCRIPT_URL || '';
 
 export interface DriveUploadResult {
   success: boolean;
@@ -35,7 +35,7 @@ function fileToBase64(file: File): Promise<string> {
  */
 export async function uploadToDrive(file: File, folder?: string): Promise<DriveUploadResult> {
   if (!SCRIPT_URL) {
-    console.error('Apps Script URL not configured. Set NEXT_PUBLIC_APPS_SCRIPT_URL in .env.local');
+    console.error('Apps Script URL not configured. Set APPS_SCRIPT_URL in .env.local');
     return { success: false, error: 'Apps Script URL not configured' };
   }
 
