@@ -18,7 +18,7 @@
 
 import { normalizeEntries } from './utils';
 
-const SCRIPT_URL = (process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || '').trim();
+const SCRIPT_URL = (process.env.APPS_SCRIPT_URL || '').trim();
 
 interface ApiOptions {
   method?: 'GET' | 'POST';
@@ -63,7 +63,7 @@ async function callApi<T>(action: string, options: ApiOptions = {}): Promise<T> 
       // the script threw before ContentService could reply).
       throw new Error(
         'Apps Script did not return JSON. Re-deploy the Web App with "Execute as: Me" and ' +
-          '"Who has access: Anyone", then update NEXT_PUBLIC_APPS_SCRIPT_URL.'
+          '"Who has access: Anyone", then update APPS_SCRIPT_URL.'
       );
     }
   } catch (error) {
