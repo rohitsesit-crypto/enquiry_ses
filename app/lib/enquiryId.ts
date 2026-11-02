@@ -52,6 +52,21 @@ function isIdColumn(key: string): boolean {
   return /^(entry|enquiry|enq)(id|no)$/.test(k) || k.endsWith("entryid");
 }
 
+/**
+ * Upper-cases an id and removes stray whitespace around its separators, so a
+ * cell holding "ENQU -00125" (usually a pasted non-breaking space) prints as
+ * "ENQU-00125" instead of a value that looks wrong on screen.
+ *
+ * A space used as the separator itself ("ENQ 00001") is left untouched.
+ */
+function canonicalId(text: string): string {
+  return text
+    .toUpperCase()
+    .replace(/\s*([-/_])\s*/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** True for free-text columns the fallback scan must not read as an id. */
 function isTextColumn(key: string): boolean {
   const k = entryIdKey(key);
@@ -105,17 +120,25 @@ export function isEntryIdShape(value: string): boolean {
 /**
  * Reads one sheet cell as clean text.
  *
- * Cells pasted from Excel often carry zero-width spaces, non-breaking spaces or
- * soft hyphens. Those are invisible, so such a cell looks empty and the stored
- * id would be lost — they are stripped, nothing else is changed.
+ * Cells pasted from Excel or exported to JSON often carry invisible characters
+ * or wrappers: zero-width spaces, non-breaking spaces, soft hyphens, a leading
+ * apostrophe (Sheets' "force text"), a spreadsheet formula marker (=) or
+ * surrounding quotes. All of those are stripped so the stored id is not lost —
+ * the value itself is never changed.
  */
 function readCell(raw: unknown): string {
   if (raw === null || raw === undefined) return "";
   if (typeof raw === "object") return "";
-  return String(raw)
+  let text = String(raw)
     .replace(/[\u200B-\u200D\uFEFF\u00AD]/g, "")
     .replace(/\u00A0/g, " ")
     .trim();
+
+  // Spreadsheet wrappers around the value.
+  text = text.replace(/^=+/, "").trim();
+  text = text.replace(/^['"`]+/, "").replace(/['"`]+$/, "").trim();
+
+  return text;
 }
 
 /**
@@ -149,7 +172,7 @@ export function getEnquiryIdInfo(entry: Record<string, unknown> | null | undefin
       column = key;
     }
     if (raw && isEntryIdShape(raw)) {
-      return { id: raw.toUpperCase(), rawCell: raw, source: "column", column: key };
+      return { id: canonicalId(raw), rawCell: raw, source: "column", column: key };
     }
   }
 
@@ -162,7 +185,7 @@ export function getEnquiryIdInfo(entry: Record<string, unknown> | null | undefin
     if (!raw || raw.length > 32) continue;
     if (!isEnquirySeries(raw)) continue;
     if (!column) column = key;
-    return { id: raw.toUpperCase(), rawCell: rawCell || raw, source: "row-scan", column };
+    return { id: canonicalId(raw), rawCell: rawCell || raw, source: "row-scan", column };
   }
 
   return { id: "", rawCell, source: "none", column };
