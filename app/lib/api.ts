@@ -1,69 +1,44 @@
 // =============================================================================
-// app/lib/api.ts   —  CORRECTED VERSION
+// app/lib/api.ts   —  CLIENT API LAYER
 // =============================================================================
-// WHAT CHANGED
-// 1) Apps Script requires "text/plain" + redirect:follow. Kept, but the body is
-//    now sent for BOTH GET-less and POST calls consistently, and a non-JSON
-//    reply (Google's HTML error page) no longer crashes the app with an
-//    unhelpful "Unexpected token <" error.
-// 2) getAdminData / getUserDashboardData now surface the NEW backend fields:
-//    viewSteps, viewStepsList, assignedStepsList, officeAccess, isActive.
-//    Without these, the admin table could never render the "View: 1,2,3" badge
-//    and the user page never knew which steps to show.
-// 3) generateUserLink now sends the real app origin, so the generated link is
-//    the deployed URL instead of a hardcoded localhost:3000.
-// 4) A missing NEXT_PUBLIC_APPS_SCRIPT_URL now fails with a clear message
-//    instead of silently fetching the current page.
+// The browser calls this app's own server route (/api/apps-script), which
+// forwards each request to the Apps Script Web App. The script URL therefore
+// lives in the server-only APPS_SCRIPT_URL variable and is never exposed to the
+// browser bundle.
+//
+// Apps Script still requires the two quirks that are now handled server-side:
+// a text/plain body (application/json triggers a rejected CORS preflight) and
+// redirect: 'follow'. A deployment that answers with an HTML page is converted
+// into a readable error instead of crashing with "Unexpected token <".
 // =============================================================================
 
 import { normalizeEntries } from './utils';
-
-const SCRIPT_URL = (process.env.APPS_SCRIPT_URL || '').trim();
+import { APPS_SCRIPT_PROXY } from './endpoints';
 
 interface ApiOptions {
-  method?: 'GET' | 'POST';
   body?: Record<string, unknown>;
-  params?: Record<string, string>;
 }
 
 async function callApi<T>(action: string, options: ApiOptions = {}): Promise<T> {
-  const { method = 'POST', body, params } = options;
-
-  if (!SCRIPT_URL) {
-    throw new Error(
-      'NEXT_PUBLIC_APPS_SCRIPT_URL is not set. Add it to .env.local and restart the dev server.'
-    );
-  }
-
-  let url = SCRIPT_URL;
-  if (method === 'GET' || params) {
-    const searchParams = new URLSearchParams({ action, ...(params || {}) });
-    url = `${SCRIPT_URL}?${searchParams.toString()}`;
-  }
-
-  const fetchOptions: RequestInit = {
-    method,
-    // Apps Script rejects application/json preflight; text/plain avoids CORS preflight.
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    redirect: 'follow',
-  };
-
-  if (method === 'POST') {
-    fetchOptions.body = JSON.stringify({ action, ...(body || {}) });
-  }
+  const { body } = options;
 
   try {
-    const response = await fetch(url, fetchOptions);
+    const response = await fetch(APPS_SCRIPT_PROXY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify({ action, ...(body || {}) }),
+    });
+
     const text = await response.text();
 
     try {
       return JSON.parse(text) as T;
     } catch {
-      // Google returned an HTML page (not deployed as "Anyone", wrong URL, or
-      // the script threw before ContentService could reply).
       throw new Error(
-        'Apps Script did not return JSON. Re-deploy the Web App with "Execute as: Me" and ' +
-          '"Who has access: Anyone", then update APPS_SCRIPT_URL.'
+        'The Apps Script proxy did not return JSON. Check that APPS_SCRIPT_URL is set ' +
+          'and that the Web App is deployed with "Execute as: Me" and ' +
+          '"Who has access: Anyone".'
       );
     }
   } catch (error) {
@@ -253,4 +228,50 @@ export async function getHolidaysAndSundays() {
     sundays: string[];
     message?: string;
   }>('getHolidaysAndSundays', { body: {} });
+}
+
+// ===== Entry ID diagnostics (test page) =====
+
+export interface EntryIdReportRow {
+  row: number;
+  entryId: string;
+  hasEntryId: boolean;
+  idLooksValid: boolean;
+  serialNo: string;
+  companyName: string;
+  submittedBy: string;
+  timestamp: string;
+  currentStep: string;
+}
+
+export interface EntryIdReport {
+  success: boolean;
+  message?: string;
+  sheetTitle?: string;
+  entryIdHeader?: string;
+  entryIdColumn?: number;
+  entryIdHeaderExact?: boolean;
+  headers?: string[];
+  totalRows?: number;
+  withEntryId?: number;
+  missingEntryId?: number;
+  idsNotMatchingEnqShape?: number;
+  duplicateEntryIds?: number;
+  rows?: EntryIdReportRow[];
+  viewer?: { email: string; isAdmin: boolean; isActive: boolean } | null;
+}
+
+/** Read-only report of what the Entries tab's Entry_ID column holds. */
+export async function getEntryIdReport(email?: string) {
+  return callApi<EntryIdReport>('getEntryIdReport', { body: { email: email || '' } });
+}
+
+/** One entry straight from the Entries tab, used to confirm the id round-trip. */
+export async function getEntryById(email: string, entryId: string) {
+  return callApi<{
+    success: boolean;
+    message?: string;
+    rowNumber?: number;
+    entry?: Record<string, unknown>;
+  }>('getEntryById', { body: { email, entryId } });
 }
