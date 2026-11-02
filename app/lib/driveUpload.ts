@@ -1,8 +1,8 @@
-// Google Drive Upload Utility via Apps Script
-// Sends file as base64 to the Apps Script which saves it to Google Drive
-// and returns a shareable link
+// Google Drive Upload Utility
+// Sends the file as base64 through this app's server proxy, which forwards it to
+// the Apps Script Web App. The script URL stays server-side (APPS_SCRIPT_URL).
 
-const SCRIPT_URL = process.env.APPS_SCRIPT_URL || '';
+import { APPS_SCRIPT_PROXY } from './endpoints';
 
 export interface DriveUploadResult {
   success: boolean;
@@ -34,11 +34,6 @@ function fileToBase64(file: File): Promise<string> {
  * @param folder - Optional folder path in Drive (e.g., "fms/entry-123/step-1")
  */
 export async function uploadToDrive(file: File, folder?: string): Promise<DriveUploadResult> {
-  if (!SCRIPT_URL) {
-    console.error('Apps Script URL not configured. Set APPS_SCRIPT_URL in .env.local');
-    return { success: false, error: 'Apps Script URL not configured' };
-  }
-
   try {
     const base64Data = await fileToBase64(file);
 
@@ -50,10 +45,10 @@ export async function uploadToDrive(file: File, folder?: string): Promise<DriveU
       folder: folder || 'ENQUIRY_CAPTURE_O2D',
     };
 
-    const response = await fetch(SCRIPT_URL, {
+    const response = await fetch(APPS_SCRIPT_PROXY, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      redirect: 'follow',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
       body: JSON.stringify(payload),
     });
 
