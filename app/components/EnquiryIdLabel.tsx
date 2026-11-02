@@ -16,12 +16,38 @@ import { getEnquiryId } from "../lib/enquiryId";
 interface EnquiryIdLabelProps {
   entry: Record<string, unknown>;
   size?: "sm" | "md";
+  /**
+   * Text shown when the sheet's Entry_ID cell is empty.
+   *
+   * Only ever a label ("No Entry ID"), never a substituted value — a challan
+   * number or party code must never appear where the id belongs.
+   */
+  fallback?: string;
 }
 
-export default function EnquiryIdLabel({ entry, size = "md" }: EnquiryIdLabelProps) {
+export default function EnquiryIdLabel({ entry, size = "md", fallback }: EnquiryIdLabelProps) {
   const id = getEnquiryId(entry);
 
-  if (!id) return null;
+  if (!id) {
+    if (!fallback) return null;
+    return (
+      <span
+        className="inline-flex items-center rounded shrink-0 whitespace-nowrap"
+        title="This row's Entry_ID cell is empty in the Entries sheet"
+        style={{
+          padding: size === "sm" ? "1px 5px" : "2px 7px",
+          fontSize: size === "sm" ? 9.5 : 10.5,
+          fontWeight: 700,
+          letterSpacing: "0.02em",
+          background: "rgba(100,100,100,0.08)",
+          color: "var(--text-faint)",
+          border: "1px solid var(--border)",
+        }}
+      >
+        {fallback}
+      </span>
+    );
+  }
 
   return (
     <span
