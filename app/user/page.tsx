@@ -761,7 +761,7 @@ function UserDashboardContent() {
                                             rendered when that cell is empty, so no
                                             dangling "·" and no invented ID. */}
                                         <div className="flex items-center gap-1.5 mb-1">
-                                          <EnquiryIdLabel entry={task.entry} size="sm" />
+                                          <EnquiryIdLabel entry={task.entry} size="sm" fallback="No Entry ID" />
                                           <h4 className="text-[13px] font-semibold truncate" style={{ color: "var(--text)" }}>
                                             {String(task.entry.Company_Name || "")}
                                           </h4>
