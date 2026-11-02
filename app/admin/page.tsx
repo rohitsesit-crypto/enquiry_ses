@@ -8,7 +8,7 @@ import { STEP_NAMES } from "../lib/types";
 import type { SyncState, SyncNotification, HolidayEntry } from "../lib/types";
 import { createSyncManager, DataSyncManager } from "../lib/dataSync";
 import { formatRelativeTime } from "../lib/utils";
-import { getEnquiryId } from "../lib/enquiryId";
+import { getEnquiryIdDisplay } from "../lib/enquiryId";
 import { StepAccessCell, OfficeAccessCell, AccessFlagsCell } from "../components/UserAccessCells";
 
 // =============================================================================
@@ -690,7 +690,7 @@ function AdminDashboardContent() {
                       {/* ENQUIRY ID — the sheet's Entry_ID value, unchanged.
                           Blank cells simply render nothing. */}
                       <td className="py-2 px-2 font-mono" style={{ color: "var(--primary)" }}>
-                        {getEnquiryId(entry)}
+                        {getEnquiryIdDisplay(entry).value || "No Entry ID"}
                       </td>
                       <td className="py-2 px-2">
                         {entry.Challan_Number ? (
